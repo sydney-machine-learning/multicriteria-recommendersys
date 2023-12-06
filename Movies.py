@@ -29,10 +29,8 @@ def read_data(file_path, criteria):
     data = pd.read_excel(file_path)
     user_id = data['User_ID']
     movie_id = data['Movies_ID']
-
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
     movie_id_map = {mid: i for i, mid in enumerate(movie_id.unique())}
-
     num_users = len(user_id_map)
     num_movies = len(movie_id_map)
     num_criteria = len(criteria)
@@ -40,16 +38,16 @@ def read_data(file_path, criteria):
 
     for i, row in data.iterrows():
         uid = row['User_ID']
-        hid = row['Movies_ID']
+        mid = row['Movies_ID']
         criterion_ratings = [row[criterion] for criterion in criteria]
-        if uid in user_id_map and hid in movie_id_map:
+        if uid in user_id_map and mid in movie_id_map:
             user_idx = user_id_map[uid]
-            movie_idx = movie_id_map[hid]
+            movie_idx = movie_id_map[mid]
             base_ground_truth_ratings[user_idx, movie_idx] = criterion_ratings
 
     return user_id_map, movie_id_map, base_ground_truth_ratings
 
-def create_graph(file_path, criteria):
+def create_bipartite_graph(file_path, criteria):
     data = pd.read_excel(file_path)
     G = nx.MultiGraph()
 
@@ -60,49 +58,37 @@ def create_graph(file_path, criteria):
         G.add_node(uid, bipartite=0)
         users.add(uid)
 
-    for hid in data['Movies_ID']:
-        G.add_node(hid, bipartite=1)
-        movies.add(hid)
+    for mid in data['Movies_ID']:
+        G.add_node(mid, bipartite=1)
+        movies.add(mid)
 
     for i in range(len(data)):
         uid = data['User_ID'][i]
-        hid = data['Movies_ID'][i]
+        mid = data['Movies_ID'][i]
 
         for criterion in criteria:
             rating = data[criterion][i]
 
             if rating > 0:
-                G.add_edge(uid, hid, criterion=criterion, weight=rating)
+                G.add_edge(uid, mid, criterion=criterion, weight=rating)
 
-    user_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 0]
-    movie_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 1]
+    print(f"Number of user nodes: {len(users)}")
+    print(f"Number of movie nodes: {len(movies)}")
 
-    is_bipartite = nx.is_bipartite(G)
-
-    if is_bipartite:
-        print("The graph is bipartite.")
-    else:
-        print("The graph is not bipartite.")
-
-    print(f"Number of user nodes: {len(user_nodes)}")
-    print(f"Number of movie nodes: {len(movie_nodes)}")
-
-    user_movie_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in user_nodes and v in movie_nodes]
+    user_movie_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in movies]
     print(f"Number of edges between user and movie nodes: {len(user_movie_edges)}")
 
     for u, v, data in G.edges(data=True):
-        if u in users and v in movies and 'criterion' in data and 'rating' in data:
+        if u in users and v in movies and 'criterion' in data and 'weight' in data:
             user_id = u
             movie_id = v
             criterion = data['criterion']
-            rating = data['rating']
+            rating = data['weight']  # Use the correct attribute name
 
-            # print(f"Edge between User_ID {str(user_id)} and Movies_ID {str(movie_id)} (Criterion: {str(criterion)}):")
-            # print(f"  Weight (Rating): {str(rating).encode('utf-8', 'replace').decode('utf-8')}")
+            # print(f"Edge between User_ID {user_id} and Movies_ID {movie_id} (Criterion: {criterion}):")
+            # print(f"  Weight (Rating): {rating}")
 
-    for u, v, data in G.edges(data=True):
-        weight = data['weight']
-        # print(f"Edge between {u} and {v} has weight: {weight}")
+    return G
 
 def create_subgraphs(file_path, criteria):
     graph_data = pd.read_excel(file_path)
@@ -114,15 +100,15 @@ def create_subgraphs(file_path, criteria):
 
     for i in range(len(graph_data)):
         uid = graph_data['User_ID'][i]
-        hid = graph_data['Movies_ID'][i]
+        mid = graph_data['Movies_ID'][i]
 
         for criterion, subgraph in zip(criteria, subgraphs):
             rating = graph_data[criterion][i]
 
             if rating > 0:
                 subgraph.add_node(uid, bipartite=0)
-                subgraph.add_node(hid, bipartite=1)
-                subgraph.add_edge(uid, hid, weight=rating)
+                subgraph.add_node(mid, bipartite=1)
+                subgraph.add_edge(uid, mid, weight=rating)
 
     for criterion, subgraph in zip(criteria, subgraphs):
         # print(f"\nSubgraph for Criterion {criterion}:")
@@ -151,32 +137,32 @@ def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, movie
 
         for i in range(len(graph_data)):
             uid = graph_data['User_ID'][i]
-            hid = graph_data['Movies_ID'][i]
+            mid = graph_data['Movies_ID'][i]
 
             rating = graph_data[criterion][i]
 
             if rating > 0:
                 subgraph.add_node(uid, bipartite=0)
-                subgraph.add_node(hid, bipartite=1)
-                subgraph.add_edge(uid, hid, weight=rating)
+                subgraph.add_node(mid, bipartite=1)
+                subgraph.add_edge(uid, mid, weight=rating)
 
         n_nodes = len(subgraph.nodes())
         adj_matrix = np.zeros((n_nodes, n_nodes), dtype=np.int32)
 
-        for uid, hid, data in subgraph.edges(data=True):
+        for uid, mid, data in subgraph.edges(data=True):
             uid_idx = list(subgraph.nodes()).index(uid)
-            hid_idx = list(subgraph.nodes()).index(hid)
-            adj_matrix[uid_idx][hid_idx] = data['weight']
-            adj_matrix[hid_idx][uid_idx] = data['weight']
+            mid_idx = list(subgraph.nodes()).index(mid)
+            adj_matrix[uid_idx][mid_idx] = data['weight']
+            adj_matrix[mid_idx][uid_idx] = data['weight']
 
-        # Print the matrix
-        print(f"\nMatrix for criterion '{criterion}':")
-        print(adj_matrix)
+        # # Print the matrix
+        # print(f"\nMatrix for criterion '{criterion}':")
+        # print(adj_matrix)
 
-        # Count zero and non-zero cells in the matrix and print the results
-        zero_cells = np.sum(adj_matrix == 0)
-        non_zero_cells = np.sum(adj_matrix != 0)
-        print(f"\nMatrix for criterion '{criterion}' has {zero_cells} zero cells and {non_zero_cells} non-zero cells.")
+        # # Count zero and non-zero cells in the matrix and print the results
+        # zero_cells = np.sum(adj_matrix == 0)
+        # non_zero_cells = np.sum(adj_matrix != 0)
+        # print(f"\nMatrix for criterion '{criterion}' has {zero_cells} zero cells and {non_zero_cells} non-zero cells.")
 
         # Calculate the degree matrices DC_uv and DC_vu as before
         DC_uv = np.diag(np.sum(adj_matrix, axis=1))
@@ -227,23 +213,23 @@ def L_BGNN(file_path, criteria, user_ids, movie_ids):
 
         for i in range(len(graph_data)):
             uid = graph_data['User_ID'][i]
-            hid = graph_data['Movies_ID'][i]
+            mid = graph_data['Movies_ID'][i]
 
             rating = graph_data[criterion][i]
 
             if rating > 0:
                 subgraph.add_node(uid, bipartite=0)
-                subgraph.add_node(hid, bipartite=1)
-                subgraph.add_edge(uid, hid, weight=rating)
+                subgraph.add_node(mid, bipartite=1)
+                subgraph.add_edge(uid, mid, weight=rating)
 
         n_nodes = len(subgraph.nodes())
         adj_matrix = np.zeros((n_nodes, n_nodes), dtype=np.int32)
 
-        for uid, hid, data in subgraph.edges(data=True):
+        for uid, mid, data in subgraph.edges(data=True):
             uid_idx = list(subgraph.nodes()).index(uid)
-            hid_idx = list(subgraph.nodes()).index(hid)
-            adj_matrix[uid_idx][hid_idx] = data['weight']
-            adj_matrix[hid_idx][uid_idx] = data['weight']
+            mid_idx = list(subgraph.nodes()).index(mid)
+            adj_matrix[uid_idx][mid_idx] = data['weight']
+            adj_matrix[mid_idx][uid_idx] = data['weight']
 
         # Calculate the degree matrices DC_uv and DC_vu as before
         DC_uv = np.diag(np.sum(adj_matrix, axis=1))
@@ -294,18 +280,18 @@ def resize_matrices(matrices):
             # If the matrix is already of the maximum size, no need to resize
             resized_matrices.append(matrix)
 
-    # Print the resized matrices and their shapes
-    for i, matrix in enumerate(resized_matrices):
-        print(f"\nResized Matrix {i + 1}:")
-        print(matrix)
-        print(f"Shape: {matrix.shape}")
+    # # Print the resized matrices and their shapes
+    # for i, matrix in enumerate(resized_matrices):
+    #     print(f"\nResized Matrix {i + 1}:")
+    #     print(matrix)
+    #     print(f"Shape: {matrix.shape}")
 
-        # Count the number of zero and non-zero elements
-        num_zeros = np.count_nonzero(matrix == 0)
-        num_non_zeros = np.count_nonzero(matrix != 0)
+    #     # Count the number of zero and non-zero elements
+    #     num_zeros = np.count_nonzero(matrix == 0)
+    #     num_non_zeros = np.count_nonzero(matrix != 0)
 
-        print(f"Number of zeros: {num_zeros}")
-        print(f"Number of non-zeros: {num_non_zeros}")
+    #     print(f"Number of zeros: {num_zeros}")
+    #     print(f"Number of non-zeros: {num_non_zeros}")
 
     return resized_matrices
 
@@ -594,7 +580,7 @@ def create_ground_truth_ratings(file_path, criteria):
 
     for i, row in data.iterrows():
         uid = row['User_ID']
-        hid = row['Movies_ID']
+        mid = row['Movies_ID']
         criterion_ratings = [row[criterion] for criterion in criteria]
         
         # Calculate average rating for criteria with a rating greater than 0
@@ -603,20 +589,20 @@ def create_ground_truth_ratings(file_path, criteria):
 
         # Assign values to additional columns
         data.at[i, 'Overal_Rating'] = Overal_Rating
-        data.at[i, 'movie_id'] = hid
+        data.at[i, 'movie_id'] = mid
         
-        if uid in user_id_map and hid in movie_id_map:
+        if uid in user_id_map and mid in movie_id_map:
             user_idx = user_id_map[uid]
-            movie_idx = movie_id_map[hid]
+            movie_idx = movie_id_map[mid]
             ground_truth_ratings_matrix[user_idx, movie_idx] = criterion_ratings
 
-    # Print the resulting ground_truth_ratings_matrix
-    print("Ground Truth Ratings Matrix:")
-    print(ground_truth_ratings_matrix)
+    # # Print the resulting ground_truth_ratings_matrix
+    # print("Ground Truth Ratings Matrix:")
+    # print(ground_truth_ratings_matrix)
 
-    # Print the DataFrame with additional columns
-    print("\nDataFrame with Additional Columns:")
-    print(data)
+    # # Print the DataFrame with additional columns
+    # print("\nDataFrame with Additional Columns:")
+    # print(data)
 
     return data, ground_truth_ratings_matrix
 
@@ -629,6 +615,54 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
     num_users_actual, _ = fused_embeddings_hadamard.shape
     fused_embeddings_hadamard_2d = fused_embeddings_hadamard.reshape((num_users_actual, -1))
     similarities = cosine_similarity(fused_embeddings_hadamard_2d)
+
+    # Counter variable to limit the number of printed users
+    printed_users_count = 0
+
+    for i in range(num_users_actual):
+        # Find the indices of the top N most similar users (excluding the user itself)
+        similar_user_indices = np.argsort(similarities[i])[::-1][1:]
+
+        # Create an empty list to store recommendations for the current user
+        recommended_movies = []
+
+        # Iterate over the top similar users and get their rated movies
+        for similar_user_index in similar_user_indices:
+            similar_user_movies = data[data['User_ID'] == similar_user_index]
+            similar_user_rated_movies = similar_user_movies.groupby(['User_ID', 'Movies_ID'])['Overal_Rating'].mean().reset_index()
+            recommended_movies.extend(similar_user_rated_movies.to_dict(orient='records'))
+
+        # Sort the recommended movies by rating in descending order
+        recommended_movies = sorted(recommended_movies, key=lambda x: x['Overal_Rating'], reverse=True)
+
+        # Add 'movie_id' to each movie dictionary
+        for movie in recommended_movies:
+            movie['movie_id'] = movie['Movies_ID']
+
+        recommendations_items[data.iloc[i]['User_ID']] = {
+            'User_ID': data.iloc[i]['User_ID'],
+            'recommended_movies': recommended_movies[:5],  # Limit to top N recommendations
+            'movie_id': data.iloc[i]['Movies_ID'],
+            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  # Convert to float
+        }
+
+        # Print recommendations for the specified number of users
+        if printed_users_count < 10:
+            print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
+            printed_users_count += 1
+
+    return recommendations_items
+
+def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria):
+    data, _ = create_ground_truth_ratings(file_path, criteria)
+    recommendations_items = {}
+
+    num_users_actual, _ = fused_embeddings_hadamard.shape
+    fused_embeddings_hadamard_2d = fused_embeddings_hadamard.reshape((num_users_actual, -1))
+    similarities = cosine_similarity(fused_embeddings_hadamard_2d)
+
+    # Initialize a set to keep track of printed user IDs
+    printed_user_ids = set()
 
     # Counter variable to limit the number of printed users
     printed_users_count = 0
@@ -654,15 +688,20 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
             'User_ID': data.iloc[i]['User_ID'],
             'recommended_movies': recommended_movies,
             'movie_id': data.iloc[i]['Movies_ID'],
-            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  # Convert to float
+            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
         }
 
         # Print recommendations for the specified number of users
-        if printed_users_count < 10:
-            print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
-            printed_users_count += 1
+        if printed_users_count < 5:
+            user_id = data.iloc[i]['User_ID']
+            
+            # Check if recommendations for this user have not been printed already
+            if user_id not in printed_user_ids:
+                print(f"Recommendations for User {user_id}: {recommendations_items[user_id]}")
+                printed_user_ids.add(user_id)  # Add the user ID to the set
+                printed_users_count += 1
         else:
-            break  # Break out of the loop once 10 users are printed
+            break  # Break out of the loop once 5 users are printed
 
     return recommendations_items
 
@@ -751,7 +790,7 @@ if __name__ == "__main__":
     user_id_map, movie_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
 
     # Call other functions
-    create_graph(file_path, criteria)
+    create_bipartite_graph(file_path, criteria)
     print("**************************")
     create_subgraphs(file_path, criteria)
 

@@ -31,7 +31,7 @@ def read_data(file_path, criteria):
     hotel_id = data['Hotel_ID']
 
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    hotel_id_map = {mid: i for i, mid in enumerate(hotel_id.unique())}
+    hotel_id_map = {hid: i for i, hid in enumerate(hotel_id.unique())}
 
     num_users = len(user_id_map)
     num_hotels = len(hotel_id_map)
@@ -49,7 +49,7 @@ def read_data(file_path, criteria):
 
     return user_id_map, hotel_id_map, base_ground_truth_ratings
 
-def create_graph(file_path, criteria):
+def create_bipartite_graph(file_path, criteria):
     data = pd.read_excel(file_path)
     G = nx.MultiGraph()
 
@@ -74,35 +74,22 @@ def create_graph(file_path, criteria):
             if rating > 0:
                 G.add_edge(uid, hid, criterion=criterion, weight=rating)
 
-    user_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 0]
-    hotel_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 1]
+    print(f"Number of user nodes: {len(users)}")
+    print(f"Number of hotel nodes: {len(hotels)}")
 
-    is_bipartite = nx.is_bipartite(G)
-
-    if is_bipartite:
-        print("The graph is bipartite.")
-    else:
-        print("The graph is not bipartite.")
-
-    print(f"Number of user nodes: {len(user_nodes)}")
-    print(f"Number of hotel nodes: {len(hotel_nodes)}")
-
-    user_hotel_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in user_nodes and v in hotel_nodes]
+    user_hotel_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in hotels]
     print(f"Number of edges between user and hotel nodes: {len(user_hotel_edges)}")
 
     for u, v, data in G.edges(data=True):
-        if u in users and v in hotels and 'criterion' in data and 'rating' in data:
+        if u in users and v in hotels and 'criterion' in data and 'weight' in data:
             user_id = u
             hotel_id = v
             criterion = data['criterion']
-            rating = data['rating']
+            rating = data['weight']  # Use the correct attribute name
+            # print(f"Edge between User_ID {user_id} and Hotel_ID {hotel_id} (Criterion: {criterion}):")
+            # print(f"  Weight (Rating): {rating}")
 
-            # print(f"Edge between User_ID {str(user_id)} and Hotel_ID {str(hotel_id)} (Criterion: {str(criterion)}):")
-            # print(f"  Weight (Rating): {str(rating).encode('utf-8', 'replace').decode('utf-8')}")
-
-    for u, v, data in G.edges(data=True):
-        weight = data['weight']
-        # print(f"Edge between {u} and {v} has weight: {weight}")
+    return G
 
 def create_subgraphs(file_path, criteria):
     graph_data = pd.read_excel(file_path)
@@ -169,14 +156,14 @@ def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, hotel
             adj_matrix[uid_idx][hid_idx] = data['weight']
             adj_matrix[hid_idx][uid_idx] = data['weight']
 
-        # Print the matrix
-        print(f"\nMatrix for criterion '{criterion}':")
-        print(adj_matrix)
+        # # Print the matrix
+        # print(f"\nMatrix for criterion '{criterion}':")
+        # print(adj_matrix)
 
-        # Count zero and non-zero cells in the matrix and print the results
-        zero_cells = np.sum(adj_matrix == 0)
-        non_zero_cells = np.sum(adj_matrix != 0)
-        print(f"\nMatrix for criterion '{criterion}' has {zero_cells} zero cells and {non_zero_cells} non-zero cells.")
+        # # Count zero and non-zero cells in the matrix and print the results
+        # zero_cells = np.sum(adj_matrix == 0)
+        # non_zero_cells = np.sum(adj_matrix != 0)
+        # print(f"\nMatrix for criterion '{criterion}' has {zero_cells} zero cells and {non_zero_cells} non-zero cells.")
 
         # Calculate the degree matrices DC_uv and DC_vu as before
         DC_uv = np.diag(np.sum(adj_matrix, axis=1))
@@ -294,18 +281,18 @@ def resize_matrices(matrices):
             # If the matrix is already of the maximum size, no need to resize
             resized_matrices.append(matrix)
 
-    # Print the resized matrices and their shapes
-    for i, matrix in enumerate(resized_matrices):
-        print(f"\nResized Matrix {i + 1}:")
-        print(matrix)
-        print(f"Shape: {matrix.shape}")
+    # # Print the resized matrices and their shapes
+    # for i, matrix in enumerate(resized_matrices):
+    #     print(f"\nResized Matrix {i + 1}:")
+    #     print(matrix)
+    #     print(f"Shape: {matrix.shape}")
 
-        # Count the number of zero and non-zero elements
-        num_zeros = np.count_nonzero(matrix == 0)
-        num_non_zeros = np.count_nonzero(matrix != 0)
+    #     # Count the number of zero and non-zero elements
+    #     num_zeros = np.count_nonzero(matrix == 0)
+    #     num_non_zeros = np.count_nonzero(matrix != 0)
 
-        print(f"Number of zeros: {num_zeros}")
-        print(f"Number of non-zeros: {num_non_zeros}")
+    #     print(f"Number of zeros: {num_zeros}")
+    #     print(f"Number of non-zeros: {num_non_zeros}")
 
     return resized_matrices
 
@@ -580,7 +567,7 @@ def create_ground_truth_ratings(file_path, criteria):
 
     # Create a mapping from user/hotel IDs to unique integer indices
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    hotel_id_map = {mid: i for i, mid in enumerate(hotel_id.unique())}
+    hotel_id_map = {hid: i for i, hid in enumerate(hotel_id.unique())}
 
     num_users = len(user_id_map)
     num_hotels = len(hotel_id_map)
@@ -629,6 +616,9 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
     fused_embeddings_hadamard_2d = fused_embeddings_hadamard.reshape((num_users_actual, -1))
     similarities = cosine_similarity(fused_embeddings_hadamard_2d)
 
+    # Initialize a set to keep track of printed user IDs
+    printed_user_ids = set()
+
     # Counter variable to limit the number of printed users
     printed_users_count = 0
 
@@ -653,18 +643,22 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
             'User_ID': data.iloc[i]['User_ID'],
             'recommended_hotels': recommended_hotels,
             'hotel_id': data.iloc[i]['Hotel_ID'],
-            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  # Convert to float
+            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
         }
 
         # Print recommendations for the specified number of users
-        if printed_users_count < 10:
-            print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
-            printed_users_count += 1
+        if printed_users_count < 5:
+            user_id = data.iloc[i]['User_ID']
+            
+            # Check if recommendations for this user have not been printed already
+            if user_id not in printed_user_ids:
+                print(f"Recommendations for User {user_id}: {recommendations_items[user_id]}")
+                printed_user_ids.add(user_id)  # Add the user ID to the set
+                printed_users_count += 1
         else:
-            break  # Break out of the loop once 10 users are printed
+            break  # Break out of the loop once 5 users are printed
 
     return recommendations_items
-
 
 def evaluate_recommendations_Prediction_Normalize(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
@@ -752,7 +746,7 @@ if __name__ == "__main__":
     user_id_map, hotel_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
 
     # Call other functions
-    create_graph(file_path, criteria)
+    create_bipartite_graph(file_path, criteria)
     print("**************************")
     create_subgraphs(file_path, criteria)
 
