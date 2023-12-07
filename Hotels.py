@@ -31,7 +31,7 @@ def read_data(file_path, criteria):
     hotel_id = data['Hotel_ID']
 
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    hotel_id_map = {hid: i for i, hid in enumerate(hotel_id.unique())}
+    hotel_id_map = {mid: i for i, mid in enumerate(hotel_id.unique())}
 
     num_users = len(user_id_map)
     num_hotels = len(hotel_id_map)
@@ -49,7 +49,7 @@ def read_data(file_path, criteria):
 
     return user_id_map, hotel_id_map, base_ground_truth_ratings
 
-def create_bipartite_graph(file_path, criteria):
+def create_graph(file_path, criteria):
     data = pd.read_excel(file_path)
     G = nx.MultiGraph()
 
@@ -74,22 +74,35 @@ def create_bipartite_graph(file_path, criteria):
             if rating > 0:
                 G.add_edge(uid, hid, criterion=criterion, weight=rating)
 
-    print(f"Number of user nodes: {len(users)}")
-    print(f"Number of hotel nodes: {len(hotels)}")
+    user_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 0]
+    hotel_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 1]
 
-    user_hotel_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in hotels]
+    is_bipartite = nx.is_bipartite(G)
+
+    if is_bipartite:
+        print("The graph is bipartite.")
+    else:
+        print("The graph is not bipartite.")
+
+    print(f"Number of user nodes: {len(user_nodes)}")
+    print(f"Number of hotel nodes: {len(hotel_nodes)}")
+
+    user_hotel_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in user_nodes and v in hotel_nodes]
     print(f"Number of edges between user and hotel nodes: {len(user_hotel_edges)}")
 
     for u, v, data in G.edges(data=True):
-        if u in users and v in hotels and 'criterion' in data and 'weight' in data:
+        if u in users and v in hotels and 'criterion' in data and 'rating' in data:
             user_id = u
             hotel_id = v
             criterion = data['criterion']
-            rating = data['weight']  # Use the correct attribute name
-            # print(f"Edge between User_ID {user_id} and Hotel_ID {hotel_id} (Criterion: {criterion}):")
-            # print(f"  Weight (Rating): {rating}")
+            rating = data['rating']
 
-    return G
+            # print(f"Edge between User_ID {str(user_id)} and Hotel_ID {str(hotel_id)} (Criterion: {str(criterion)}):")
+            # print(f"  Weight (Rating): {str(rating).encode('utf-8', 'replace').decode('utf-8')}")
+
+    for u, v, data in G.edges(data=True):
+        weight = data['weight']
+        # print(f"Edge between {u} and {v} has weight: {weight}")
 
 def create_subgraphs(file_path, criteria):
     graph_data = pd.read_excel(file_path)
@@ -156,13 +169,13 @@ def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, hotel
             adj_matrix[uid_idx][hid_idx] = data['weight']
             adj_matrix[hid_idx][uid_idx] = data['weight']
 
-        # # Print the matrix
+        # Print the matrix
         # print(f"\nMatrix for criterion '{criterion}':")
         # print(adj_matrix)
 
-        # # Count zero and non-zero cells in the matrix and print the results
-        # zero_cells = np.sum(adj_matrix == 0)
-        # non_zero_cells = np.sum(adj_matrix != 0)
+        # Count zero and non-zero cells in the matrix and print the results
+        zero_cells = np.sum(adj_matrix == 0)
+        non_zero_cells = np.sum(adj_matrix != 0)
         # print(f"\nMatrix for criterion '{criterion}' has {zero_cells} zero cells and {non_zero_cells} non-zero cells.")
 
         # Calculate the degree matrices DC_uv and DC_vu as before
@@ -567,7 +580,7 @@ def create_ground_truth_ratings(file_path, criteria):
 
     # Create a mapping from user/hotel IDs to unique integer indices
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    hotel_id_map = {hid: i for i, hid in enumerate(hotel_id.unique())}
+    hotel_id_map = {mid: i for i, mid in enumerate(hotel_id.unique())}
 
     num_users = len(user_id_map)
     num_hotels = len(hotel_id_map)
@@ -606,9 +619,12 @@ def create_ground_truth_ratings(file_path, criteria):
 
     return data, ground_truth_ratings_matrix
 
+# ------------------------------------------------------------------------------------------
 # ---------------------------------Evaluate MCRS based-Prediction ---------------------------
+# ---------------------------------------------------------------------------------------
 
-def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria):
+
+def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10):
     data, _ = create_ground_truth_ratings(file_path, criteria)
     recommendations_items = {}
 
@@ -616,21 +632,22 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
     fused_embeddings_hadamard_2d = fused_embeddings_hadamard.reshape((num_users_actual, -1))
     similarities = cosine_similarity(fused_embeddings_hadamard_2d)
 
-    # Initialize a set to keep track of printed user IDs
-    printed_user_ids = set()
-
     # Counter variable to limit the number of printed users
     printed_users_count = 0
 
     for i in range(num_users_actual):
-        similar_user_index = np.argmax(similarities[i])
+        similar_user_index = np.argsort(similarities[i])[::-1][:top_k]
 
-        # Use iloc to select a row and pass it as a DataFrame
-        similar_user_hotels = data.iloc[[similar_user_index]]
+        similar_user_hotels = data.iloc[similar_user_index]
 
-        # Assuming 'User_ID' is a column in data
         similar_user_rated_hotels = similar_user_hotels.groupby(['User_ID', 'Hotel_ID'])['Overal_Rating'].mean().reset_index()
         similar_user_rated_hotels = similar_user_rated_hotels.sort_values(by='Overal_Rating', ascending=False)
+
+        # Apply the threshold to filter out low-rated recommendations
+        similar_user_rated_hotels = similar_user_rated_hotels[similar_user_rated_hotels['Overal_Rating'] >= threshold]
+
+        # Take the top-K recommendations after applying the threshold
+        similar_user_rated_hotels = similar_user_rated_hotels.head(top_k)
 
         # Create the recommendation
         recommended_hotels = similar_user_rated_hotels.to_dict(orient='records')
@@ -643,61 +660,23 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
             'User_ID': data.iloc[i]['User_ID'],
             'recommended_hotels': recommended_hotels,
             'hotel_id': data.iloc[i]['Hotel_ID'],
-            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
+            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  # Convert to float
         }
 
-        # Print recommendations for the specified number of users
-        if printed_users_count < 5:
-            user_id = data.iloc[i]['User_ID']
-            
-            # Check if recommendations for this user have not been printed already
-            if user_id not in printed_user_ids:
-                print(f"Recommendations for User {user_id}: {recommendations_items[user_id]}")
-                printed_user_ids.add(user_id)  # Add the user ID to the set
-                printed_users_count += 1
-        else:
-            break  # Break out of the loop once 5 users are printed
+        # # Print recommendations for the specified number of users
+        # if printed_users_count < 5:
+        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
+        #     printed_users_count += 1
+        # else:
+        #     break  # Break out of the loop once 10 users are printed
 
     return recommendations_items
 
-def evaluate_recommendations_Prediction_Normalize(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map):
-    predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
-
-    for user_id, recommendation in recommendations_items.items():
-        hotels = recommendation['recommended_hotels']
-        user_idx = user_id_map[recommendation['User_ID']]
-        
-        if len(hotels) > 0:
-            # Calculate the average rating of recommended hotels
-            avg_rating = np.mean([hotel['Overal_Rating'] for hotel in hotels])
-            
-            # Assign the average rating to all recommended hotels for the current user
-            for hotel in hotels:
-                hotel_idx = hotel_id_map[hotel['hotel_id']]
-                predicted_ratings[user_idx, hotel_idx] = avg_rating
-
-    actual_ratings = ground_truth_real_matrix.flatten()
-
-    # Normalize ratings to [0, 1]
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    actual_ratings_normalized = scaler.fit_transform(actual_ratings.reshape(-1, 1))
-    predicted_ratings_normalized = scaler.transform(predicted_ratings.reshape(-1, 1))
-
-    # Split the data into training and testing sets
-    actual_train, actual_test, predicted_train, predicted_test = train_test_split(
-        actual_ratings_normalized, predicted_ratings_normalized, test_size=0.3, random_state=42)
-
-    mae = mean_absolute_error(actual_test, predicted_test)
-    rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
-    
-    # Print the results
-    print(f"\nMAE: {mae}")
-    print(f"RMSE: {rmse}")
- 
-    return mae, rmse
 
 def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
+    actual_ratings = []
+    indices = []
 
     for user_id, recommendation in recommendations_items.items():
         hotels = recommendation['recommended_hotels']
@@ -706,20 +685,29 @@ def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, re
         if len(hotels) > 0:
             # Calculate the average rating of recommended hotels
             avg_rating = np.mean([hotel['Overal_Rating'] for hotel in hotels])
-            
-            # Assign the average rating to all recommended hotels for the current user
+
             for hotel in hotels:
                 hotel_idx = hotel_id_map[hotel['hotel_id']]
+                # Assign the average rating to the predicted rating matrix
                 predicted_ratings[user_idx, hotel_idx] = avg_rating
+                
+                # Check if the user actually rated the hotel and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, hotel_idx]
+                if np.any(actual_rating != 0):
+                    actual_ratings.append(actual_rating)
+                    indices.append((user_idx, hotel_idx))
 
-    actual_ratings = ground_truth_real_matrix.flatten()
+    actual_ratings = np.array(actual_ratings)
+    indices = np.array(indices)
 
-    # Reshape predicted_ratings to have the same number of elements as actual_ratings
-    predicted_ratings = np.reshape(predicted_ratings, actual_ratings.shape)
+    # Split the indices into training and testing sets
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3, random_state=42)
 
-    # Split the data into training and testing sets
-    actual_train, actual_test, predicted_train, predicted_test = train_test_split(
-        actual_ratings, predicted_ratings, test_size=0.3, random_state=42)
+    # Extract corresponding values from the predicted ratings matrix
+    actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
+    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
+    predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
+    predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
 
     mae = mean_absolute_error(actual_test, predicted_test)
     rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
@@ -729,7 +717,6 @@ def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, re
     print(f"RMSE: {rmse}")
  
     return mae, rmse
-
 
 # ---------------------------------------------------------------------------------------
 # Main Function ---------------------------
@@ -746,7 +733,7 @@ if __name__ == "__main__":
     user_id_map, hotel_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
 
     # Call other functions
-    create_bipartite_graph(file_path, criteria)
+    create_graph(file_path, criteria)
     print("**************************")
     create_subgraphs(file_path, criteria)
 
@@ -829,20 +816,16 @@ if __name__ == "__main__":
     similarity_threshold = 0.5  # Adjust as needed
     top_k_values = [10] * len(user_id_map)  # Set the default value of k for each user
     
-    
-    top_k_Pre=[1]
     # Call the create_real_ratings function
     data, ground_truth_real_matrix = create_ground_truth_ratings(file_path, criteria)
     # Call the P_Recommendation_item function
     # recommendations_items = P_Recommendation_item(fused_embeddings_hadamard, similarity_threshold, top_k_Pre, file_path, criteria)
-    recommendations_items = P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria)
+    recommendations_items = P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10)
         
-    mae,rmse=evaluate_recommendations_Prediction_Normalize(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
     # Call this function after calling evaluate_recommendations_Prediction
     mae, rmse = evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
 
-   
-
+    
 
 
 

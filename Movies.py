@@ -608,7 +608,7 @@ def create_ground_truth_ratings(file_path, criteria):
 
 # ---------------------------------Evaluate MCRS based-Prediction ---------------------------
 
-def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria):
+def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10):
     data, _ = create_ground_truth_ratings(file_path, criteria)
     recommendations_items = {}
 
@@ -620,62 +620,18 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
     printed_users_count = 0
 
     for i in range(num_users_actual):
-        # Find the indices of the top N most similar users (excluding the user itself)
-        similar_user_indices = np.argsort(similarities[i])[::-1][1:]
+        similar_user_index = np.argsort(similarities[i])[::-1][:top_k]
 
-        # Create an empty list to store recommendations for the current user
-        recommended_movies = []
+        similar_user_movies = data.iloc[similar_user_index]
 
-        # Iterate over the top similar users and get their rated movies
-        for similar_user_index in similar_user_indices:
-            similar_user_movies = data[data['User_ID'] == similar_user_index]
-            similar_user_rated_movies = similar_user_movies.groupby(['User_ID', 'Movies_ID'])['Overal_Rating'].mean().reset_index()
-            recommended_movies.extend(similar_user_rated_movies.to_dict(orient='records'))
-
-        # Sort the recommended movies by rating in descending order
-        recommended_movies = sorted(recommended_movies, key=lambda x: x['Overal_Rating'], reverse=True)
-
-        # Add 'movie_id' to each movie dictionary
-        for movie in recommended_movies:
-            movie['movie_id'] = movie['Movies_ID']
-
-        recommendations_items[data.iloc[i]['User_ID']] = {
-            'User_ID': data.iloc[i]['User_ID'],
-            'recommended_movies': recommended_movies[:5],  # Limit to top N recommendations
-            'movie_id': data.iloc[i]['Movies_ID'],
-            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  # Convert to float
-        }
-
-        # Print recommendations for the specified number of users
-        if printed_users_count < 10:
-            print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
-            printed_users_count += 1
-
-    return recommendations_items
-
-def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria):
-    data, _ = create_ground_truth_ratings(file_path, criteria)
-    recommendations_items = {}
-
-    num_users_actual, _ = fused_embeddings_hadamard.shape
-    fused_embeddings_hadamard_2d = fused_embeddings_hadamard.reshape((num_users_actual, -1))
-    similarities = cosine_similarity(fused_embeddings_hadamard_2d)
-
-    # Initialize a set to keep track of printed user IDs
-    printed_user_ids = set()
-
-    # Counter variable to limit the number of printed users
-    printed_users_count = 0
-
-    for i in range(num_users_actual):
-        similar_user_index = np.argmax(similarities[i])
-
-        # Use iloc to select a row and pass it as a DataFrame
-        similar_user_movies = data.iloc[[similar_user_index]]
-
-        # Assuming 'User_ID' is a column in data
         similar_user_rated_movies = similar_user_movies.groupby(['User_ID', 'Movies_ID'])['Overal_Rating'].mean().reset_index()
         similar_user_rated_movies = similar_user_rated_movies.sort_values(by='Overal_Rating', ascending=False)
+
+        # Apply the threshold to filter out low-rated recommendations
+        similar_user_rated_movies = similar_user_rated_movies[similar_user_rated_movies['Overal_Rating'] >= threshold]
+
+        # Take the top-K recommendations after applying the threshold
+        similar_user_rated_movies = similar_user_rated_movies.head(top_k)
 
         # Create the recommendation
         recommended_movies = similar_user_rated_movies.to_dict(orient='records')
@@ -691,58 +647,19 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
             'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
         }
 
-        # Print recommendations for the specified number of users
-        if printed_users_count < 5:
-            user_id = data.iloc[i]['User_ID']
-            
-            # Check if recommendations for this user have not been printed already
-            if user_id not in printed_user_ids:
-                print(f"Recommendations for User {user_id}: {recommendations_items[user_id]}")
-                printed_user_ids.add(user_id)  # Add the user ID to the set
-                printed_users_count += 1
-        else:
-            break  # Break out of the loop once 5 users are printed
+        # # Print recommendations for the specified number of users
+        # if printed_users_count < 5:
+        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
+        #     printed_users_count += 1
+        # else:
+        #     break  # Break out of the loop once 10 users are printed
 
     return recommendations_items
 
-def evaluate_recommendations_Prediction_Normalize(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
-    predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
-
-    for user_id, recommendation in recommendations_items.items():
-        movies = recommendation['recommended_movies']
-        user_idx = user_id_map[recommendation['User_ID']]
-        
-        if len(movies) > 0:
-            # Calculate the average rating of recommended movies
-            avg_rating = np.mean([movie['Overal_Rating'] for movie in movies])
-            
-            # Assign the average rating to all recommended movies for the current user
-            for movie in movies:
-                movie_idx = movie_id_map[movie['movie_id']]
-                predicted_ratings[user_idx, movie_idx] = avg_rating
-
-    actual_ratings = ground_truth_real_matrix.flatten()
-
-    # Normalize ratings to [0, 1]
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    actual_ratings_normalized = scaler.fit_transform(actual_ratings.reshape(-1, 1))
-    predicted_ratings_normalized = scaler.transform(predicted_ratings.reshape(-1, 1))
-
-    # Split the data into training and testing sets
-    actual_train, actual_test, predicted_train, predicted_test = train_test_split(
-        actual_ratings_normalized, predicted_ratings_normalized, test_size=0.3, random_state=42)
-
-    mae = mean_absolute_error(actual_test, predicted_test)
-    rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
-    
-    # Print the results
-    print(f"\nMAE: {mae}")
-    print(f"RMSE: {rmse}")
- 
-    return mae, rmse
-
 def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
+    actual_ratings = []
+    indices = []
 
     for user_id, recommendation in recommendations_items.items():
         movies = recommendation['recommended_movies']
@@ -751,20 +668,29 @@ def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, re
         if len(movies) > 0:
             # Calculate the average rating of recommended movies
             avg_rating = np.mean([movie['Overal_Rating'] for movie in movies])
-            
-            # Assign the average rating to all recommended movies for the current user
+
             for movie in movies:
                 movie_idx = movie_id_map[movie['movie_id']]
+                # Assign the average rating to the predicted rating matrix
                 predicted_ratings[user_idx, movie_idx] = avg_rating
+                
+                # Check if the user actually rated the movie and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, movie_idx]
+                if np.any(actual_rating != 0):
+                    actual_ratings.append(actual_rating)
+                    indices.append((user_idx, movie_idx))
 
-    actual_ratings = ground_truth_real_matrix.flatten()
+    actual_ratings = np.array(actual_ratings)
+    indices = np.array(indices)
 
-    # Reshape predicted_ratings to have the same number of elements as actual_ratings
-    predicted_ratings = np.reshape(predicted_ratings, actual_ratings.shape)
+    # Split the indices into training and testing sets
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3)
 
-    # Split the data into training and testing sets
-    actual_train, actual_test, predicted_train, predicted_test = train_test_split(
-        actual_ratings, predicted_ratings, test_size=0.3, random_state=42)
+    # Extract corresponding values from the predicted ratings matrix
+    actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
+    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
+    predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
+    predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
 
     mae = mean_absolute_error(actual_test, predicted_test)
     rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
@@ -783,6 +709,7 @@ def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, re
 if __name__ == "__main__":
     
     # Define the file path and criteria
+    # file_path = '/home/z5318340/MoviesDatasetYahoo.xlsx'
     file_path = 'C://Yahoo//Movies.xlsx'
     criteria = ['C1', 'C2', 'C3', 'C4']
 
@@ -868,20 +795,13 @@ if __name__ == "__main__":
 
     # Create a DataFrame with user and movie identifiers as MultiIndex
     df_users_movies = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, movie_id) for user_id in user_id_map.keys() for movie_id in movie_id_map.keys()]))
-
-    # Set parameters
-    similarity_threshold = 0.5  # Adjust as needed
-    top_k_values = [10] * len(user_id_map)  # Set the default value of k for each user
     
-    
-    top_k_Pre=[1]
     # Call the create_real_ratings function
     data, ground_truth_real_matrix = create_ground_truth_ratings(file_path, criteria)
     # Call the P_Recommendation_item function
     # recommendations_items = P_Recommendation_item(fused_embeddings_hadamard, similarity_threshold, top_k_Pre, file_path, criteria)
-    recommendations_items = P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria)
+    recommendations_items = P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10)
         
-    mae,rmse=evaluate_recommendations_Prediction_Normalize(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
     # Call this function after calling evaluate_recommendations_Prediction
     mae, rmse = evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
 
