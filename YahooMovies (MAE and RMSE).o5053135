@@ -1,0 +1,108 @@
+Number of user nodes: 6078
+Number of movie nodes: 976
+Number of edges between user and movie nodes: 38848
+**************************
+Training GAT graph A_C1
+Epoch 0, Loss 7.9282
+Epoch 10, Loss 5.0977
+Epoch 20, Loss 3.4387
+Epoch 30, Loss 2.1197
+Epoch 40, Loss 1.2251
+Epoch 50, Loss 0.8136
+Epoch 60, Loss 0.6100
+Epoch 70, Loss 0.4111
+Epoch 80, Loss 0.2646
+Epoch 90, Loss 0.1478
+Training GAT graph A_C2
+Epoch 0, Loss 0.0251
+Epoch 10, Loss 0.0556
+Epoch 20, Loss 0.0352
+Epoch 30, Loss 0.0260
+Epoch 40, Loss 0.0231
+Epoch 50, Loss 0.0216
+Epoch 60, Loss 0.0240
+Epoch 70, Loss 0.0227
+Epoch 80, Loss 0.0212
+Epoch 90, Loss 0.0227
+Training GAT graph A_C3
+Epoch 0, Loss 0.4199
+Epoch 10, Loss 0.4476
+Epoch 20, Loss 0.4372
+Epoch 30, Loss 0.4279
+Epoch 40, Loss 0.4270
+Epoch 50, Loss 0.4280
+Epoch 60, Loss 0.4248
+Epoch 70, Loss 0.4243
+Epoch 80, Loss 0.4281
+Epoch 90, Loss 0.4253
+Training GAT graph A_C4
+Epoch 0, Loss 1.2242
+Epoch 10, Loss 1.2258
+Epoch 20, Loss 1.2255
+Epoch 30, Loss 1.2237
+Epoch 40, Loss 1.2281
+Epoch 50, Loss 1.2236
+Epoch 60, Loss 1.2222
+Epoch 70, Loss 1.2271
+Epoch 80, Loss 1.2232
+Epoch 90, Loss 1.2237
+tensor([[-5.7918e-04,  1.0160e-03,  7.4921e-04,  ..., -1.3971e-03,
+          2.4777e-04,  3.7763e-07],
+        [-5.7919e-04,  1.0160e-03,  7.4922e-04,  ..., -1.3971e-03,
+          2.4776e-04,  3.8334e-07],
+        [-5.7919e-04,  1.0160e-03,  7.4922e-04,  ..., -1.3971e-03,
+          2.4777e-04,  3.8247e-07],
+        ...,
+        [-5.7918e-04,  1.0160e-03,  7.4920e-04,  ..., -1.3972e-03,
+          2.4776e-04,  3.8689e-07],
+        [-5.7921e-04,  1.0160e-03,  7.4922e-04,  ..., -1.3972e-03,
+          2.4778e-04,  3.8406e-07],
+        [-5.7914e-04,  1.0160e-03,  7.4924e-04,  ..., -1.3972e-03,
+          2.4784e-04,  3.7425e-07]])
+Fused Embeddings:
+tensor([[-5.7918e-04,  1.0160e-03,  7.4921e-04,  ..., -1.3971e-03,
+          2.4777e-04,  3.7763e-07],
+        [-5.7919e-04,  1.0160e-03,  7.4922e-04,  ..., -1.3971e-03,
+          2.4776e-04,  3.8334e-07],
+        [-5.7919e-04,  1.0160e-03,  7.4922e-04,  ..., -1.3971e-03,
+          2.4777e-04,  3.8247e-07],
+        ...,
+        [-5.7918e-04,  1.0160e-03,  7.4920e-04,  ..., -1.3972e-03,
+          2.4776e-04,  3.8689e-07],
+        [-5.7921e-04,  1.0160e-03,  7.4922e-04,  ..., -1.3972e-03,
+          2.4778e-04,  3.8406e-07],
+        [-5.7914e-04,  1.0160e-03,  7.4924e-04,  ..., -1.3972e-03,
+          2.4784e-04,  3.7425e-07]])
+*********************
+*********************
+Epoch 0 Loss: 0.4767
+Epoch 10 Loss: 0.3116
+Epoch 20 Loss: 0.2755
+Epoch 30 Loss: 0.2569
+Epoch 40 Loss: 0.2234
+Epoch 50 Loss: 0.1921
+Epoch 60 Loss: 0.1721
+Epoch 70 Loss: 0.1625
+Epoch 80 Loss: 0.1574
+Epoch 90 Loss: 0.1544
+MLP Training completed.
+Shape of fused_embeddings_hadamard: torch.Size([6078, 512])
+
+
+MAE: 0.6624999046325684
+RMSE: 0.71980881690979
+
+================================================================================
+                     Resource Usage on 07/12/2023 11:57:02                      
+
+Job Id: 5053135 
+Queue: MATHS
+Walltime: 00:18:36  (requested 01:00:00)
+Job execution was successful. Exit Status 0. 
+
+--------------------------------------------------------------------------------
+|              |             CPUs              |            Memory             |
+--------------------------------------------------------------------------------
+| Node         | Requested   Used   Efficiency | Requested   Used   Efficiency |
+| k133         |    32       23.88     75.0%   |  32.0gb    7.14gb     22.3%   |
+--------------------------------------------------------------------------------
