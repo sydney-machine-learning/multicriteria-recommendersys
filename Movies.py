@@ -840,13 +840,14 @@ def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items,
         user_idx = user_id_map[recommendation['User_ID']]
 
         if len(movies) > 0:
-            actual_ratings.extend(ground_truth_real_matrix[user_idx, [movie_id_map[movie['movie_id']] for movie in movies]])
+            user_actual_ratings = ground_truth_real_matrix[user_idx, [movie_id_map[movie['movie_id']] for movie in movies]]
+            actual_ratings.extend(user_actual_ratings)
             indices.extend([(user_idx, movie_id_map[movie['movie_id']]) for movie in movies])
 
-            rated_movies_count = np.sum(np.array(actual_ratings[-len(movies):]) > 0)
+            rated_movies_count = np.sum(user_actual_ratings > 0)
             recommended_movies_count = len(movies)
 
-            tp += min(rated_movies_count, recommended_movies_count)
+            tp += np.sum(user_actual_ratings > 0)
             fp += max(0, recommended_movies_count - rated_movies_count)
             fn += max(0, rated_movies_count - recommended_movies_count)
 
@@ -858,13 +859,13 @@ def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items,
 
     # Extract corresponding values from the predicted ratings matrix for the test set
     actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
-
+    
     # Calculate precision and recall
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0 
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     f2 = (5 * precision * recall) / (4 * precision + recall) if (4 * precision + recall) > 0 else 0
-
+    
     # Print the results in a different table format
     results_table = [
         ["Total number of indices", len(indices)],
@@ -882,7 +883,6 @@ def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items,
     print(tabulate(results_table, headers=["Manual Metrics", "Score"], tablefmt="grid"))
 
     return precision, recall, f1, f2
-
 
 
 

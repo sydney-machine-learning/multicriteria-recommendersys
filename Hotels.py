@@ -853,13 +853,14 @@ def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items,
         user_idx = user_id_map[recommendation['User_ID']]
 
         if len(hotels) > 0:
-            actual_ratings.extend(ground_truth_real_matrix[user_idx, [hotel_id_map[hotel['hotel_id']] for hotel in hotels]])
+            user_actual_ratings = ground_truth_real_matrix[user_idx, [hotel_id_map[hotel['hotel_id']] for hotel in hotels]]
+            actual_ratings.extend(user_actual_ratings)
             indices.extend([(user_idx, hotel_id_map[hotel['hotel_id']]) for hotel in hotels])
 
-            rated_hotels_count = np.sum(np.array(actual_ratings[-len(hotels):]) > 0)
+            rated_hotels_count = np.sum(user_actual_ratings > 0)
             recommended_hotels_count = len(hotels)
 
-            tp += min(rated_hotels_count, recommended_hotels_count)
+            tp += np.sum(user_actual_ratings > 0)
             fp += max(0, recommended_hotels_count - rated_hotels_count)
             fn += max(0, rated_hotels_count - recommended_hotels_count)
 
@@ -871,13 +872,13 @@ def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items,
 
     # Extract corresponding values from the predicted ratings matrix for the test set
     actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
-
+    
     # Calculate precision and recall
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0 
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     f2 = (5 * precision * recall) / (4 * precision + recall) if (4 * precision + recall) > 0 else 0
-
+    
     # Print the results in a different table format
     results_table = [
         ["Total number of indices", len(indices)],
@@ -1010,3 +1011,9 @@ if __name__ == "__main__":
     mae, rmse = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
     precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
     precision, recall, f1, f2 = Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
+
+    
+
+
+
+
