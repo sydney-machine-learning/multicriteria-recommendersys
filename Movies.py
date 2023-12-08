@@ -23,6 +23,10 @@ from sklearn.metrics import average_precision_score
 from scipy.stats import rankdata
 import warnings
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import fbeta_score, average_precision_score
+from tabulate import tabulate
+
 
 
 def read_data(file_path, criteria):
@@ -608,7 +612,7 @@ def create_ground_truth_ratings(file_path, criteria):
 
 # ---------------------------------Evaluate MCRS based-Prediction ---------------------------
 
-def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10):
+def Generate_Recommendation(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10):
     data, _ = create_ground_truth_ratings(file_path, criteria)
     recommendations_items = {}
 
@@ -656,7 +660,7 @@ def P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, crite
 
     return recommendations_items
 
-def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
@@ -700,6 +704,188 @@ def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, re
     print(f"RMSE: {rmse}")
  
     return mae, rmse
+
+#******************************************
+
+def reciprocal_rank(y_true, y_score):
+    # Flatten y_true and y_score
+    y_true_flat = np.ravel(y_true)
+    y_score_flat = np.ravel(y_score)
+
+    order = np.argsort(y_score_flat)[::-1]
+    ranks = np.empty_like(order, dtype=float)
+    ranks[order] = np.arange(1, len(order) + 1)
+
+    # Find the index of the first relevant item
+    first_rank_index = np.argmax(y_true_flat[order])
+
+    # Check if there is at least one relevant item
+    if y_true_flat[order[first_rank_index]] == 0:
+        return 0.0
+
+    return 1.0 / ranks[first_rank_index]
+
+def calculate_map(y_true, y_score):
+    # Calculate Average Precision (AP)
+    ap_score = average_precision_score(y_true, y_score)
+
+    return ap_score
+
+def Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+    predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
+    actual_ratings = []
+    indices = []
+
+    for user_id, recommendation in recommendations_items.items():
+        movies = recommendation['recommended_movies']
+        user_idx = user_id_map[recommendation['User_ID']]
+
+        if len(movies) > 0:
+            # Calculate the average rating of recommended movies
+            avg_rating = np.mean([movie['Overal_Rating'] for movie in movies])
+
+            for movie in movies:
+                movie_idx = movie_id_map[movie['movie_id']]
+                # Assign the average rating to the predicted rating matrix
+                predicted_ratings[user_idx, movie_idx] = avg_rating
+
+                # Check if the user actually rated the movie and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, movie_idx]
+                if np.any(actual_rating != 0):
+                    actual_ratings.append(actual_rating)
+                    indices.append((user_idx, movie_idx))
+
+    actual_ratings = np.array(actual_ratings)
+    indices = np.array(indices)
+
+    # Split the indices into training and testing sets
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3, random_state=42)
+
+    # Extract corresponding values from the predicted ratings matrix
+    actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
+    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
+    predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
+    predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
+
+    # Consider Overal_Rating > 8 as positive ratings
+    positive_test = actual_test > 8
+    positive_predicted = predicted_test > 8
+
+    # Calculate true positives based on the new condition
+    true_positives = np.sum(np.logical_and(positive_test, positive_predicted))
+
+    # Calculate false negatives
+    false_negatives = np.sum(np.logical_and(positive_test, ~positive_predicted))
+    
+    # Calculate precision, recall, and F1 based on the modified true positives
+    precision = precision_score(positive_test, positive_predicted, average='macro')
+    recall = recall_score(positive_test, positive_predicted, average='macro')
+    f1 = f1_score(positive_test, positive_predicted, average='macro')
+
+    # Calculate F2 score
+    beta = 2  # You can adjust the value of beta according to your preference
+    f2 = fbeta_score(positive_test, positive_predicted, beta=beta, average='macro')
+
+    # Calculate Mean Average Precision (MAP)
+    map_scores = []
+
+    for i in range(len(test_indices)):
+        user_idx, movie_idx = test_indices[i]
+        user_actual = ground_truth_real_matrix[user_idx, movie_idx]
+        user_predicted = predicted_test[i]
+
+        if np.any(user_actual > 8):  # Use np.any() instead of if user_actual > 8
+            # If the user actually rated the movie higher than 8, calculate AP for this user
+            ap_score = calculate_map(user_actual > 8, user_predicted)
+            map_scores.append(ap_score)
+
+    map_score = np.mean(map_scores)
+
+    # Flatten actual_test and predicted_test
+    actual_test_flat = actual_test.flatten()
+    predicted_test_flat = predicted_test.flatten()
+
+    # Calculate Mean Reciprocal Rank (MRR)
+    mrr_score = reciprocal_rank(actual_test_flat, predicted_test_flat)
+
+    # Calculate Average Precision (AP)
+    ap_score = average_precision_score(positive_test, positive_predicted, average='macro')
+
+    # Print the results
+    results_table = [
+        ["True Positives (tp)", true_positives],
+        ["False Negatives (fn)", false_negatives],
+        ["Precision", precision],
+        ["Recall", recall],
+        ["F1", f1],
+        ["F2", f2],
+        ["MAP", map_score],
+        ["MRR", mrr_score],
+        ["AP", ap_score],
+    ]
+
+    print(tabulate(results_table, headers=["Library Metrics ", "Score"], tablefmt="pretty"))
+
+    return precision, recall, f1, f2, map_score, mrr_score, ap_score
+
+def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+    tp = 0  # True Positives
+    fp = 0  # False Positives
+    fn = 0  # False Negatives
+    actual_ratings = []
+    indices = []
+
+    for user_id, recommendation in recommendations_items.items():
+        movies = recommendation['recommended_movies']
+        user_idx = user_id_map[recommendation['User_ID']]
+
+        if len(movies) > 0:
+            actual_ratings.extend(ground_truth_real_matrix[user_idx, [movie_id_map[movie['movie_id']] for movie in movies]])
+            indices.extend([(user_idx, movie_id_map[movie['movie_id']]) for movie in movies])
+
+            rated_movies_count = np.sum(np.array(actual_ratings[-len(movies):]) > 0)
+            recommended_movies_count = len(movies)
+
+            tp += min(rated_movies_count, recommended_movies_count)
+            fp += max(0, recommended_movies_count - rated_movies_count)
+            fn += max(0, rated_movies_count - recommended_movies_count)
+
+    actual_ratings = np.array(actual_ratings)
+    indices = np.array(indices)
+
+    # Split the indices into training and testing sets
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3, random_state=42)
+
+    # Extract corresponding values from the predicted ratings matrix for the test set
+    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
+
+    # Calculate precision and recall
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0 
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    f2 = (5 * precision * recall) / (4 * precision + recall) if (4 * precision + recall) > 0 else 0
+
+    # Print the results in a different table format
+    results_table = [
+        ["Total number of indices", len(indices)],
+        ["Number of training indices", len(train_indices)],
+        ["Number of testing indices", len(test_indices)],
+        ["True Positives (tp)", tp],
+        ["False Positives (fp)", fp],
+        ["False Negatives (fn)", fn],
+        ["Precision", precision],
+        ["Recall", recall],
+        ["F1", f1],
+        ["F2", f2],
+    ]
+
+    print(tabulate(results_table, headers=["Manual Metrics", "Score"], tablefmt="grid"))
+
+    return precision, recall, f1, f2
+
+
+
+
 
 # ---------------------------------------------------------------------------------------
 # Main Function ---------------------------
@@ -788,7 +974,7 @@ if __name__ == "__main__":
     # After training, you can call the methods for prediction
     fused_embeddings, sigmoid_predictions = model.sigmoid_prediction(fused_embeddings_tensor)
     fused_embeddings_hadamard = model.hadamard_product(fused_embeddings, sigmoid_predictions)
-    print("Shape of fused_embeddings_hadamard:", fused_embeddings_hadamard.shape)
+    # print("Shape of fused_embeddings_hadamard:", fused_embeddings_hadamard.shape)
     
     # Call the create_ground_truth_ratings function
     ground_truth_ratings = create_ground_truth_ratings(file_path, criteria)
@@ -800,12 +986,12 @@ if __name__ == "__main__":
     data, ground_truth_real_matrix = create_ground_truth_ratings(file_path, criteria)
     # Call the P_Recommendation_item function
     # recommendations_items = P_Recommendation_item(fused_embeddings_hadamard, similarity_threshold, top_k_Pre, file_path, criteria)
-    recommendations_items = P_Recommendation_item_simplified(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10)
+    recommendations_items = Generate_Recommendation(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10)
         
     # Call this function after calling evaluate_recommendations_Prediction
-    mae, rmse = evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
-
- 
+    mae, rmse = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
+    precision, recall, f1, f2 = Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
+    precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
 
 
 
