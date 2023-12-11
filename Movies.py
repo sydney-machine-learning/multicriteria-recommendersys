@@ -581,6 +581,7 @@ def create_ground_truth_ratings(file_path, criteria):
     # Additional columns
     data['Overal_Rating'] = 0
     data['movie_id'] = ''  # Add the 'movie_id' column
+    data['Number_Rated_Items'] = 0  # Add the 'Number_Rated_Items' column
 
     for i, row in data.iterrows():
         uid = row['User_ID']
@@ -594,37 +595,50 @@ def create_ground_truth_ratings(file_path, criteria):
         # Assign values to additional columns
         data.at[i, 'Overal_Rating'] = Overal_Rating
         data.at[i, 'movie_id'] = mid
+
+        # Calculate and assign the number of rated items by each user
+        num_rated_items_by_user = np.sum(data[data['User_ID'] == uid][criteria].apply(lambda x: (x > 0).any(), axis=1))
+        data.at[i, 'Number_Rated_Items'] = num_rated_items_by_user
         
         if uid in user_id_map and mid in movie_id_map:
             user_idx = user_id_map[uid]
             movie_idx = movie_id_map[mid]
             ground_truth_ratings_matrix[user_idx, movie_idx] = criterion_ratings
 
-    # # Print the resulting ground_truth_ratings_matrix
-    # print("Ground Truth Ratings Matrix:")
-    # print(ground_truth_ratings_matrix)
-
-    # # Print the DataFrame with additional columns
-    # print("\nDataFrame with Additional Columns:")
-    # print(data)
-
     return data, ground_truth_ratings_matrix
 
-# ---------------------------------Evaluate MCRS based-Prediction ---------------------------
+def normalize_hadamard_embeddings(fused_embeddings_hadamard):
+    # Detach PyTorch tensors
+    fused_embeddings_hadamard = fused_embeddings_hadamard.detach().numpy()
 
-def Generate_Recommendation(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10):
+    # Create a MinMaxScaler instance
+    scaler = MinMaxScaler()
+
+    # Fit the scaler on the summed_embeddings and transform them
+    normalized_embeddings = scaler.fit_transform(fused_embeddings_hadamard)
+
+    return normalized_embeddings
+
+def Generate_Recommendation(normalized_embeddings, file_path, criteria, threshold=0.9):
+    
     data, _ = create_ground_truth_ratings(file_path, criteria)
     recommendations_items = {}
 
-    num_users_actual, _ = fused_embeddings_hadamard.shape
-    fused_embeddings_hadamard_2d = fused_embeddings_hadamard.reshape((num_users_actual, -1))
-    similarities = cosine_similarity(fused_embeddings_hadamard_2d)
+    num_users_actual, _ = normalized_embeddings.shape
+    normalized_embeddings_2d = normalized_embeddings.reshape((num_users_actual, -1))
+    similarities = cosine_similarity(normalized_embeddings_2d)
 
-    # Counter variable to limit the number of printed users
-    printed_users_count = 0
+    for user_index in range(num_users_actual):
+        user_id = data.iloc[user_index]['User_ID']
 
-    for i in range(num_users_actual):
-        similar_user_index = np.argsort(similarities[i])[::-1][:top_k]
+        # Dynamically set top_k based on the number of items the user has rated
+        user_data = data[data['User_ID'] == user_id]
+        top_k_user = min(len(user_data), num_users_actual)
+
+        similar_user_index = np.argsort(similarities[user_index])[::-1]
+
+        # Get the top-K similar users
+        similar_user_index = similar_user_index[:top_k_user]
 
         similar_user_movies = data.iloc[similar_user_index]
 
@@ -635,7 +649,7 @@ def Generate_Recommendation(fused_embeddings_hadamard, file_path, criteria, thre
         similar_user_rated_movies = similar_user_rated_movies[similar_user_rated_movies['Overal_Rating'] >= threshold]
 
         # Take the top-K recommendations after applying the threshold
-        similar_user_rated_movies = similar_user_rated_movies.head(top_k)
+        similar_user_rated_movies = similar_user_rated_movies.head(top_k_user)
 
         # Create the recommendation
         recommended_movies = similar_user_rated_movies.to_dict(orient='records')
@@ -644,23 +658,20 @@ def Generate_Recommendation(fused_embeddings_hadamard, file_path, criteria, thre
         for movie in recommended_movies:
             movie['movie_id'] = movie['Movies_ID']
 
-        recommendations_items[data.iloc[i]['User_ID']] = {
-            'User_ID': data.iloc[i]['User_ID'],
+        recommendations_items[user_id] = {
+            'User_ID': user_id,
             'recommended_movies': recommended_movies,
-            'movie_id': data.iloc[i]['Movies_ID'],
-            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
+            'movie_id': data.iloc[user_index]['Movies_ID'],
+            'Overal_Rating': float(data.iloc[user_index]['Overal_Rating'])  
         }
 
-        # # Print recommendations for the specified number of users
-        # if printed_users_count < 5:
-        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_items[data.iloc[i]['User_ID']]}")
-        #     printed_users_count += 1
-        # else:
-        #     break  # Break out of the loop once 10 users are printed
+    # Print the number of recommendations for each user outside the loop
+    for user_id, recommendation in recommendations_items.items():
+        print(f"User {user_id} has {len(recommendation['recommended_movies'])} recommendations.")
 
     return recommendations_items
 
-def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map, data):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
@@ -686,9 +697,11 @@ def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendation
 
     actual_ratings = np.array(actual_ratings)
     indices = np.array(indices)
-
+    
+    # Shuffle the data
+    data = data.sample(frac=1, random_state=42)
     # Split the indices into training and testing sets
-    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3)
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3, random_state=42)
 
     # Extract corresponding values from the predicted ratings matrix
     actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
@@ -699,13 +712,100 @@ def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendation
     mae = mean_absolute_error(actual_test, predicted_test)
     rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
     
+    # Normalize actual and predicted ratings between 0 and 1
+    scaler = MinMaxScaler()
+    actual_test_normalized = scaler.fit_transform(actual_test.reshape(-1, 1)).flatten()
+    predicted_test_normalized = scaler.transform(predicted_test.reshape(-1, 1)).flatten()
+
+    mae_normalized = mean_absolute_error(actual_test_normalized, predicted_test_normalized)
+    rmse_normalized = np.sqrt(mean_squared_error(actual_test_normalized, predicted_test_normalized))
+
     # Print the results
     print(f"\nMAE: {mae}")
     print(f"RMSE: {rmse}")
+    # Print the results
+    print(f"\nMAE (Normalized): {mae_normalized}")
+    print(f"RMSE (Normalized): {rmse_normalized}")
  
-    return mae, rmse
+    return mae, rmse, mae_normalized, rmse_normalized
 
-#******************************************
+#********************************************************************************
+def Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+    actual_ratings = []
+    indices = []
+
+    total_tp = 0  # Total True Positives
+    total_fp = 0  # Total False Positives
+    total_fn = 0  # Total False Negatives
+
+    for user_id, recommendation in recommendations_items.items():
+        tp = 0  # Reset True Positives for each user
+        fp = 0  # Reset False Positives for each user
+        fn = 0  # Reset False Negatives for each user
+
+        movies = recommendation['recommended_movies']
+        user_idx = user_id_map[recommendation['User_ID']]
+
+        if len(movies) > 0:
+            # Extract actual ratings and indices for the current user
+            user_actual_ratings = ground_truth_real_matrix[user_idx, :]
+            actual_ratings.extend(user_actual_ratings)
+            indices.extend([(user_idx, i) for i in range(len(user_actual_ratings))])
+
+            recommended_movies_count = len(movies)
+
+            # Calculate True Positives, False Positives, and False Negatives for the current user
+            for i in range(len(user_actual_ratings)):
+                if np.any(user_actual_ratings[i] > 0):
+                    if i in [movie_id_map[movie['movie_id']] for movie in movies]:
+                        tp += 1
+                    else:
+                        fn += 1
+                elif i in [movie_id_map[movie['movie_id']] for movie in movies]:
+                    fp += 1
+
+            # Print information for each user, including the total number of rated items
+            print(f"User ID: {user_id}, True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}")
+
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+
+    actual_ratings = np.array(actual_ratings)
+    indices = np.array(indices)
+
+    # Split the indices into training and testing sets
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3, random_state=42)
+
+    # Extract corresponding values from the predicted ratings matrix for the test set
+    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
+
+    # Calculate precision and recall
+    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
+    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    f2 = (5 * precision * recall) / (4 * precision + recall) if (4 * precision + recall) > 0 else 0
+    
+    # Print the results in a different table format
+    results_table = [
+        ["Total number of indices", len(indices)],
+        ["Number of training indices", len(train_indices)],
+        ["Number of testing indices", len(test_indices)],
+        ["True Positives (tp)", total_tp],
+        ["False Positives (fp)", total_fp],
+        ["False Negatives (fn)", total_fn],
+        ["Precision", precision],
+        ["Recall", recall],
+        ["F1", f1],
+        ["F2", f2],
+    ]
+
+    print(tabulate(results_table, headers=["Manual Metrics", "Score"], tablefmt="grid"))
+
+    return precision, recall, f1, f2
+
+
+#**************************************************************************************
 
 def reciprocal_rank(y_true, y_score):
     # Flatten y_true and y_score
@@ -731,7 +831,7 @@ def calculate_map(y_true, y_score):
 
     return ap_score
 
-def Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
@@ -799,7 +899,10 @@ def Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items
             ap_score = calculate_map(user_actual > 8, user_predicted)
             map_scores.append(ap_score)
 
-    map_score = np.mean(map_scores)
+    if len(map_scores) > 0:
+        map_score = np.mean(map_scores)
+    else:
+        map_score = 0.0  # or any other appropriate value
 
     # Flatten actual_test and predicted_test
     actual_test_flat = actual_test.flatten()
@@ -827,65 +930,6 @@ def Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items
     print(tabulate(results_table, headers=["Library Metrics ", "Score"], tablefmt="pretty"))
 
     return precision, recall, f1, f2, map_score, mrr_score, ap_score
-
-def Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
-    tp = 0  # True Positives
-    fp = 0  # False Positives
-    fn = 0  # False Negatives
-    actual_ratings = []
-    indices = []
-
-    for user_id, recommendation in recommendations_items.items():
-        movies = recommendation['recommended_movies']
-        user_idx = user_id_map[recommendation['User_ID']]
-
-        if len(movies) > 0:
-            user_actual_ratings = ground_truth_real_matrix[user_idx, [movie_id_map[movie['movie_id']] for movie in movies]]
-            actual_ratings.extend(user_actual_ratings)
-            indices.extend([(user_idx, movie_id_map[movie['movie_id']]) for movie in movies])
-
-            rated_movies_count = np.sum(user_actual_ratings > 0)
-            recommended_movies_count = len(movies)
-
-            tp += np.sum(user_actual_ratings > 0)
-            fp += max(0, recommended_movies_count - rated_movies_count)
-            fn += max(0, rated_movies_count - recommended_movies_count)
-
-    actual_ratings = np.array(actual_ratings)
-    indices = np.array(indices)
-
-    # Split the indices into training and testing sets
-    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3, random_state=42)
-
-    # Extract corresponding values from the predicted ratings matrix for the test set
-    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
-    
-    # Calculate precision and recall
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0 
-    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-    f2 = (5 * precision * recall) / (4 * precision + recall) if (4 * precision + recall) > 0 else 0
-    
-    # Print the results in a different table format
-    results_table = [
-        ["Total number of indices", len(indices)],
-        ["Number of training indices", len(train_indices)],
-        ["Number of testing indices", len(test_indices)],
-        ["True Positives (tp)", tp],
-        ["False Positives (fp)", fp],
-        ["False Negatives (fn)", fn],
-        ["Precision", precision],
-        ["Recall", recall],
-        ["F1", f1],
-        ["F2", f2],
-    ]
-
-    print(tabulate(results_table, headers=["Manual Metrics", "Score"], tablefmt="grid"))
-
-    return precision, recall, f1, f2
-
-
-
 
 # ---------------------------------------------------------------------------------------
 # Main Function ---------------------------
@@ -940,7 +984,7 @@ if __name__ == "__main__":
     
     #---Attention Embedding------
     # GAT and Fusion Embeddings
-    model = GAT(in_channels=16, out_channels=128)
+    model = GAT(in_channels=16, out_channels=256)
     result = model.Multi_Embd(resized_matrices, user_ids_tensor, movie_ids_tensor, num_epochs=100, learning_rate=0.01)
     print(result)
     fused_embeddings_with_ids = result  # unpack the values you need
@@ -982,16 +1026,20 @@ if __name__ == "__main__":
     # Create a DataFrame with user and movie identifiers as MultiIndex
     df_users_movies = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, movie_id) for user_id in user_id_map.keys() for movie_id in movie_id_map.keys()]))
     
+    # normalized_Embeddings vectors of summed_embeddings
+    normalized_H_F_embeddings = normalize_hadamard_embeddings(fused_embeddings_hadamard)
+    print("Normalize:",normalized_H_F_embeddings)
+    
     # Call the create_real_ratings function
     data, ground_truth_real_matrix = create_ground_truth_ratings(file_path, criteria)
     # Call the P_Recommendation_item function
-    # recommendations_items = P_Recommendation_item(fused_embeddings_hadamard, similarity_threshold, top_k_Pre, file_path, criteria)
-    recommendations_items = Generate_Recommendation(fused_embeddings_hadamard, file_path, criteria, threshold=0.5, top_k=10)
+    # recommendations_items = P_Recommendation_item(normalized_embeddings, similarity_threshold, top_k_Pre, file_path, criteria)
+    recommendations_items = Generate_Recommendation(normalized_H_F_embeddings, file_path, criteria, threshold=0.9)
         
     # Call this function after calling evaluate_recommendations_Prediction
-    mae, rmse = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
-    precision, recall, f1, f2 = Evaluate_RS_Recommendations(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
-    precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryFunctions(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
+    mae, rmse, mae_normalized, rmse_normalized = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map, data)
+    precision, recall, f1, f2 = Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
+    precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
 
 
 
