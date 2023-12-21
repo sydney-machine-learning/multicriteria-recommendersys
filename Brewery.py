@@ -33,43 +33,43 @@ from tabulate import tabulate
 def read_data(file_path, criteria):
     data = pd.read_excel(file_path)
     user_id = data['User_ID']
-    movie_id = data['Movies_ID']
+    brewery_id = data['Brewery_ID']
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    movie_id_map = {mid: i for i, mid in enumerate(movie_id.unique())}
+    brewery_id_map = {mid: i for i, mid in enumerate(brewery_id.unique())}
     num_users = len(user_id_map)
-    num_movies = len(movie_id_map)
+    num_brewerys = len(brewery_id_map)
     num_criteria = len(criteria)
-    base_ground_truth_ratings = np.zeros((num_users, num_movies, num_criteria), dtype=np.int32)
+    base_ground_truth_ratings = np.zeros((num_users, num_brewerys, num_criteria), dtype=np.int32)
 
     for i, row in data.iterrows():
         uid = row['User_ID']
-        mid = row['Movies_ID']
+        mid = row['Brewery_ID']
         criterion_ratings = [row[criterion] for criterion in criteria]
-        if uid in user_id_map and mid in movie_id_map:
+        if uid in user_id_map and mid in brewery_id_map:
             user_idx = user_id_map[uid]
-            movie_idx = movie_id_map[mid]
-            base_ground_truth_ratings[user_idx, movie_idx] = criterion_ratings
+            brewery_idx = brewery_id_map[mid]
+            base_ground_truth_ratings[user_idx, brewery_idx] = criterion_ratings
 
-    return user_id_map, movie_id_map, base_ground_truth_ratings
+    return user_id_map, brewery_id_map, base_ground_truth_ratings
 
 def create_bipartite_graph(file_path, criteria):
     data = pd.read_excel(file_path)
     G = nx.MultiGraph()
 
     users = set()
-    movies = set()
+    brewerys = set()
 
     for uid in data['User_ID']:
         G.add_node(uid, bipartite=0)
         users.add(uid)
 
-    for mid in data['Movies_ID']:
+    for mid in data['Brewery_ID']:
         G.add_node(mid, bipartite=1)
-        movies.add(mid)
+        brewerys.add(mid)
 
     for i in range(len(data)):
         uid = data['User_ID'][i]
-        mid = data['Movies_ID'][i]
+        mid = data['Brewery_ID'][i]
 
         for criterion in criteria:
             rating = data[criterion][i]
@@ -78,19 +78,19 @@ def create_bipartite_graph(file_path, criteria):
                 G.add_edge(uid, mid, criterion=criterion, weight=rating)
 
     print(f"Number of user nodes: {len(users)}")
-    print(f"Number of movie nodes: {len(movies)}")
+    print(f"Number of brewery nodes: {len(brewerys)}")
 
-    user_movie_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in movies]
-    print(f"Number of edges between user and movie nodes: {len(user_movie_edges)}")
+    user_brewery_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in brewerys]
+    print(f"Number of edges between user and brewery nodes: {len(user_brewery_edges)}")
 
     for u, v, data in G.edges(data=True):
-        if u in users and v in movies and 'criterion' in data and 'weight' in data:
+        if u in users and v in brewerys and 'criterion' in data and 'weight' in data:
             user_id = u
-            movie_id = v
+            brewery_id = v
             criterion = data['criterion']
             rating = data['weight']  # Use the correct attribute name
 
-            # print(f"Edge between User_ID {user_id} and Movies_ID {movie_id} (Criterion: {criterion}):")
+            # print(f"Edge between User_ID {user_id} and Brewery_ID {brewery_id} (Criterion: {criterion}):")
             # print(f"  Weight (Rating): {rating}")
 
     return G
@@ -105,7 +105,7 @@ def create_subgraphs(file_path, criteria):
 
     for i in range(len(graph_data)):
         uid = graph_data['User_ID'][i]
-        mid = graph_data['Movies_ID'][i]
+        mid = graph_data['Brewery_ID'][i]
 
         for criterion, subgraph in zip(criteria, subgraphs):
             rating = graph_data[criterion][i]
@@ -121,28 +121,28 @@ def create_subgraphs(file_path, criteria):
         # print(f"Is bipartite: {is_bipartite}")
 
         user_nodes = [node for node in subgraph.nodes() if subgraph.nodes[node]['bipartite'] == 0]
-        movie_nodes = [node for node in subgraph.nodes() if subgraph.nodes[node]['bipartite'] == 1]
+        brewery_nodes = [node for node in subgraph.nodes() if subgraph.nodes[node]['bipartite'] == 1]
         # print(f"Number of user nodes: {len(user_nodes)}")
-        # print(f"Number of movie nodes: {len(movie_nodes)}")
+        # print(f"Number of brewery nodes: {len(brewery_nodes)}")
 
         subgraph_edges = [(u, v, data) for u, v, data in subgraph.edges(data=True)]
         # print(f"Number of edges in subgraph: {len(subgraph_edges)}")
 
-def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, movie_ids):
+def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, brewery_ids):
     graph_data = pd.read_excel(file_path)
     bgnn_matrices = []  # Initialize a list to store the BGNN matrices for each criterion
 
     user_id_to_index = {}
     user_index_to_id = {}
-    movie_id_to_index = {}
-    movie_index_to_id = {}
+    brewery_id_to_index = {}
+    brewery_index_to_id = {}
 
     for criterion in criteria:
         subgraph = nx.Graph()
 
         for i in range(len(graph_data)):
             uid = graph_data['User_ID'][i]
-            mid = graph_data['Movies_ID'][i]
+            mid = graph_data['Brewery_ID'][i]
 
             rating = graph_data[criterion][i]
 
@@ -193,32 +193,32 @@ def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, movie
         bgnn_matrix = np.block([[np.zeros_like(Bu), Bu], [Bv, np.zeros_like(Bv)]])
         bgnn_matrices.append(bgnn_matrix)
 
-    # Create mappings from IDs to indices and vice versa for users and movies
+    # Create mappings from IDs to indices and vice versa for users and brewerys
     for idx, user_id in enumerate(user_ids):
         user_id_to_index[user_id] = idx
         user_index_to_id[idx] = user_id
 
-    for idx, movie_id in enumerate(movie_ids):
-        movie_id_to_index[movie_id] = idx
-        movie_index_to_id[idx] = movie_id
+    for idx, brewery_id in enumerate(brewery_ids):
+        brewery_id_to_index[brewery_id] = idx
+        brewery_index_to_id[idx] = brewery_id
 
-    return bgnn_matrices, user_id_to_index, user_index_to_id, movie_id_to_index, movie_index_to_id
+    return bgnn_matrices, user_id_to_index, user_index_to_id, brewery_id_to_index, brewery_index_to_id
 
-def L_BGNN(file_path, criteria, user_ids, movie_ids):
+def L_BGNN(file_path, criteria, user_ids, brewery_ids):
     graph_data = pd.read_excel(file_path)
     matrices = []  # Initialize a list to store the normalized matrices for each criterion
 
     user_id_to_index = {}
     user_index_to_id = {}
-    movie_id_to_index = {}
-    movie_index_to_id = {}
+    brewery_id_to_index = {}
+    brewery_index_to_id = {}
 
     for criterion in criteria:
         subgraph = nx.Graph()
 
         for i in range(len(graph_data)):
             uid = graph_data['User_ID'][i]
-            mid = graph_data['Movies_ID'][i]
+            mid = graph_data['Brewery_ID'][i]
 
             rating = graph_data[criterion][i]
 
@@ -253,14 +253,14 @@ def L_BGNN(file_path, criteria, user_ids, movie_ids):
         # print(f"\nNormalized Matrix for criterion '{criterion}':")
         # print(normalized_matrix)
 
-    # Create mappings from IDs to indices and vice versa for users and movies
+    # Create mappings from IDs to indices and vice versa for users and brewerys
     for idx, user_id in enumerate(user_ids):
         user_id_to_index[user_id] = idx
         user_index_to_id[idx] = user_id
 
-    for idx, movie_id in enumerate(movie_ids):
-        movie_id_to_index[movie_id] = idx
-        movie_index_to_id[idx] = movie_id
+    for idx, brewery_id in enumerate(brewery_ids):
+        brewery_id_to_index[brewery_id] = idx
+        brewery_index_to_id[idx] = brewery_id
 
     return tuple(matrices), user_id_to_index, user_index_to_id, 
 
@@ -352,7 +352,7 @@ class GAT(nn.Module):
 
         return x
 
-    def Multi_Embd(self, matrices, user_ids, movie_ids, num_epochs=100, learning_rate=0.01):
+    def Multi_Embd(self, matrices, user_ids, brewery_ids, num_epochs=100, learning_rate=0.01):
         resized_matrices = resize_matrices(matrices)  # Use resize_matrices function here
         dataset_list = []
 
@@ -379,11 +379,11 @@ class GAT(nn.Module):
 
             embeddings_list.append(embeddings)
 
-        fused_embeddings = self.fusion_embeddings_vectors(embeddings_list, user_ids, movie_ids)
+        fused_embeddings = self.fusion_embeddings_vectors(embeddings_list, user_ids, brewery_ids)
 
         return fused_embeddings
     
-    def fusion_embeddings_vectors(self, embeddings_list, user_ids, movie_ids):
+    def fusion_embeddings_vectors(self, embeddings_list, user_ids, brewery_ids):
         max_size = max([embedding.size(0) for embedding in embeddings_list])
         
         # Pad embeddings to the maximum size
@@ -394,7 +394,7 @@ class GAT(nn.Module):
         
         return fused_embeddings
     
-    # def attention_fusion(self, embeddings_list, user_ids, movie_ids):
+    # def attention_fusion(self, embeddings_list, user_ids, brewery_ids):
     #     attention_weights = torch.nn.Parameter(torch.ones(len(embeddings_list)))
     #     attention_weights = F.softmax(attention_weights, dim=0)
 
@@ -480,25 +480,25 @@ class GAT(nn.Module):
 def create_ground_truth_ratings(file_path, criteria):  
     data = pd.read_excel(file_path)
     user_id = data['User_ID']
-    movie_id = data['Movies_ID']
+    brewery_id = data['Brewery_ID']
 
-    # Create a mapping from user/movie IDs to unique integer indices
+    # Create a mapping from user/brewery IDs to unique integer indices
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    movie_id_map = {mid: i for i, mid in enumerate(movie_id.unique())}
+    brewery_id_map = {mid: i for i, mid in enumerate(brewery_id.unique())}
 
     num_users = len(user_id_map)
-    num_movies = len(movie_id_map)
+    num_brewerys = len(brewery_id_map)
     num_criteria = len(criteria)
-    ground_truth_ratings_matrix = np.zeros((num_users, num_movies, num_criteria), dtype=np.int16)
+    ground_truth_ratings_matrix = np.zeros((num_users, num_brewerys, num_criteria), dtype=np.int16)
     
     # Additional columns
     data['Overal_Rating'] = 0
-    data['movie_id'] = ''  # Add the 'movie_id' column
+    data['brewery_id'] = ''  # Add the 'brewery_id' column
     data['Number_Rated_Items'] = 0  # Add the 'Number_Rated_Items' column
 
     for i, row in data.iterrows():
         uid = row['User_ID']
-        mid = row['Movies_ID']
+        mid = row['Brewery_ID']
         criterion_ratings = [row[criterion] for criterion in criteria]
         
         # Calculate average rating for criteria with a rating greater than 0
@@ -507,16 +507,16 @@ def create_ground_truth_ratings(file_path, criteria):
 
         # Assign values to additional columns
         data.at[i, 'Overal_Rating'] = Overal_Rating
-        data.at[i, 'movie_id'] = mid
+        data.at[i, 'brewery_id'] = mid
 
         # Calculate and assign the number of rated items by each user
         num_rated_items_by_user = np.sum(data[data['User_ID'] == uid][criteria].apply(lambda x: (x > 0).any(), axis=1))
         data.at[i, 'Number_Rated_Items'] = num_rated_items_by_user
         
-        if uid in user_id_map and mid in movie_id_map:
+        if uid in user_id_map and mid in brewery_id_map:
             user_idx = user_id_map[uid]
-            movie_idx = movie_id_map[mid]
-            ground_truth_ratings_matrix[user_idx, movie_idx] = criterion_ratings
+            brewery_idx = brewery_id_map[mid]
+            ground_truth_ratings_matrix[user_idx, brewery_idx] = criterion_ratings
 
     return data, ground_truth_ratings_matrix
 
@@ -534,7 +534,7 @@ def normalize_hadamard_embeddings(fused_embeddings):
 
 def P_Recommendation_item_simplified(normalized_embeddings, file_path, criteria, threshold_A=0.9, top_k=1):
     data, _ = create_ground_truth_ratings(file_path, criteria)
-    recommendations_movies = {}
+    recommendations_brewerys = {}
 
     num_users_actual, _ = normalized_embeddings.shape
     normalized_embeddings_2d = normalized_embeddings.reshape((num_users_actual, -1))
@@ -546,63 +546,63 @@ def P_Recommendation_item_simplified(normalized_embeddings, file_path, criteria,
     for i in range(num_users_actual):
         similar_user_index = np.argsort(similarities[i])[::-1][:top_k]
 
-        similar_user_movies = data.iloc[similar_user_index]
+        similar_user_brewerys = data.iloc[similar_user_index]
 
-        similar_user_rated_movies = similar_user_movies.groupby(['User_ID', 'Movies_ID'])['Overal_Rating'].mean().reset_index()
-        similar_user_rated_movies = similar_user_rated_movies.sort_values(by='Overal_Rating', ascending=False)
+        similar_user_rated_brewerys = similar_user_brewerys.groupby(['User_ID', 'Brewery_ID'])['Overal_Rating'].mean().reset_index()
+        similar_user_rated_brewerys = similar_user_rated_brewerys.sort_values(by='Overal_Rating', ascending=False)
 
         # Apply the threshold_A to filter out low-rated recommendations
-        similar_user_rated_movies = similar_user_rated_movies[similar_user_rated_movies['Overal_Rating'] >= threshold_A]
+        similar_user_rated_brewerys = similar_user_rated_brewerys[similar_user_rated_brewerys['Overal_Rating'] >= threshold_A]
 
         # Take the top-K recommendations after applying the threshold_A
-        similar_user_rated_movies = similar_user_rated_movies.head(top_k)
+        similar_user_rated_brewerys = similar_user_rated_brewerys.head(top_k)
 
         # Create the recommendation
-        recommended_movies = similar_user_rated_movies.to_dict(orient='records')
+        recommended_brewerys = similar_user_rated_brewerys.to_dict(orient='records')
 
-        # Add 'movie_id' to each movie dictionary
-        for movie in recommended_movies:
-            movie['movie_id'] = movie['Movies_ID']
+        # Add 'brewery_id' to each brewery dictionary
+        for brewery in recommended_brewerys:
+            brewery['brewery_id'] = brewery['Brewery_ID']
 
-        recommendations_movies[data.iloc[i]['User_ID']] = {
+        recommendations_brewerys[data.iloc[i]['User_ID']] = {
             'User_ID': data.iloc[i]['User_ID'],
-            'recommended_movies': recommended_movies,
-            'movie_id': data.iloc[i]['Movies_ID'],
+            'recommended_brewerys': recommended_brewerys,
+            'brewery_id': data.iloc[i]['Brewery_ID'],
             'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
         }
 
         # # Print recommendations for the specified number of users
         # if printed_users_count < 5:
-        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_movies[data.iloc[i]['User_ID']]}")
+        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_brewerys[data.iloc[i]['User_ID']]}")
         #     printed_users_count += 1
         # else:
         #     break  # Break out of the loop once 10 users are printed
 
-    return recommendations_movies
+    return recommendations_brewerys
 
-def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_movies, user_id_map, movie_id_map):
+def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_brewerys, user_id_map, brewery_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
 
-    for user_id, recommendation in recommendations_movies.items():
-        movies = recommendation['recommended_movies']
+    for user_id, recommendation in recommendations_brewerys.items():
+        brewerys = recommendation['recommended_brewerys']
         user_idx = user_id_map[recommendation['User_ID']]
         
-        if len(movies) > 0:
-            # Calculate the average rating of recommended movies
-            avg_rating = np.mean([movie['Overal_Rating'] for movie in movies])
+        if len(brewerys) > 0:
+            # Calculate the average rating of recommended brewerys
+            avg_rating = np.mean([brewery['Overal_Rating'] for brewery in brewerys])
 
-            for movie in movies:
-                movie_idx = movie_id_map[movie['movie_id']]
+            for brewery in brewerys:
+                brewery_idx = brewery_id_map[brewery['brewery_id']]
                 # Assign the average rating to the predicted rating matrix
-                predicted_ratings[user_idx, movie_idx] = avg_rating
+                predicted_ratings[user_idx, brewery_idx] = avg_rating
                 
-                # Check if the user actually rated the movie and store the actual rating and index
-                actual_rating = ground_truth_real_matrix[user_idx, movie_idx]
+                # Check if the user actually rated the brewery and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, brewery_idx]
                 if np.any(actual_rating != 0):
                     actual_ratings.append(actual_rating)
-                    indices.append((user_idx, movie_idx))
+                    indices.append((user_idx, brewery_idx))
 
     actual_ratings = np.array(actual_ratings)
     indices = np.array(indices)
@@ -646,60 +646,60 @@ def Generate_Recommendation(normalized_embeddings, file_path, criteria, threshol
         # Get the top-K similar users
         similar_user_index = similar_user_index[:top_k_user]
 
-        similar_user_movies = data.iloc[similar_user_index]
+        similar_user_brewerys = data.iloc[similar_user_index]
 
-        similar_user_rated_movies = similar_user_movies.groupby(['User_ID', 'Movies_ID'])['Overal_Rating'].mean().reset_index()
-        similar_user_rated_movies = similar_user_rated_movies.sort_values(by='Overal_Rating', ascending=False)
+        similar_user_rated_brewerys = similar_user_brewerys.groupby(['User_ID', 'Brewery_ID'])['Overal_Rating'].mean().reset_index()
+        similar_user_rated_brewerys = similar_user_rated_brewerys.sort_values(by='Overal_Rating', ascending=False)
 
         # Apply the threshold to filter out low-rated recommendations
-        similar_user_rated_movies = similar_user_rated_movies[similar_user_rated_movies['Overal_Rating'] >= threshold]
+        similar_user_rated_brewerys = similar_user_rated_brewerys[similar_user_rated_brewerys['Overal_Rating'] >= threshold]
 
         # Take the top-K recommendations after applying the threshold
-        similar_user_rated_movies = similar_user_rated_movies.head(top_k_user)
+        similar_user_rated_brewerys = similar_user_rated_brewerys.head(top_k_user)
 
         # Create the recommendation
-        recommended_movies = similar_user_rated_movies.to_dict(orient='records')
+        recommended_brewerys = similar_user_rated_brewerys.to_dict(orient='records')
 
-        # Add 'movie_id' to each movie dictionary
-        for movie in recommended_movies:
-            movie['movie_id'] = movie['Movies_ID']
+        # Add 'brewery_id' to each brewery dictionary
+        for brewery in recommended_brewerys:
+            brewery['brewery_id'] = brewery['Brewery_ID']
 
         recommendations_items[user_id] = {
             'User_ID': user_id,
-            'recommended_movies': recommended_movies,
-            'movie_id': data.iloc[user_index]['Movies_ID'],
+            'recommended_brewerys': recommended_brewerys,
+            'brewery_id': data.iloc[user_index]['Brewery_ID'],
             'Overal_Rating': float(data.iloc[user_index]['Overal_Rating'])  
         }
 
     # # Print the number of recommendations for each user outside the loop
     # for user_id, recommendation in recommendations_items.items():
-    #     print(f"User {user_id} has {len(recommendation['recommended_movies'])} recommendations.")
+    #     print(f"User {user_id} has {len(recommendation['recommended_brewerys'])} recommendations.")
 
     return recommendations_items
 
-def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map, data):
+def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, brewery_id_map, data):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
 
     for user_id, recommendation in recommendations_items.items():
-        movies = recommendation['recommended_movies']
+        brewerys = recommendation['recommended_brewerys']
         user_idx = user_id_map[recommendation['User_ID']]
         
-        if len(movies) > 0:
-            # Calculate the average rating of recommended movies
-            avg_rating = np.mean([movie['Overal_Rating'] for movie in movies])
+        if len(brewerys) > 0:
+            # Calculate the average rating of recommended brewerys
+            avg_rating = np.mean([brewery['Overal_Rating'] for brewery in brewerys])
 
-            for movie in movies:
-                movie_idx = movie_id_map[movie['movie_id']]
+            for brewery in brewerys:
+                brewery_idx = brewery_id_map[brewery['brewery_id']]
                 # Assign the average rating to the predicted rating matrix
-                predicted_ratings[user_idx, movie_idx] = avg_rating
+                predicted_ratings[user_idx, brewery_idx] = avg_rating
                 
-                # Check if the user actually rated the movie and store the actual rating and index
-                actual_rating = ground_truth_real_matrix[user_idx, movie_idx]
+                # Check if the user actually rated the brewery and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, brewery_idx]
                 if np.any(actual_rating != 0):
                     actual_ratings.append(actual_rating)
-                    indices.append((user_idx, movie_idx))
+                    indices.append((user_idx, brewery_idx))
 
     actual_ratings = np.array(actual_ratings)
     indices = np.array(indices)
@@ -736,7 +736,7 @@ def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendation
     return mae, rmse, mae_normalized, rmse_normalized
 
 #********************************************************************************
-def Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+def Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, brewery_id_map):
     actual_ratings = []
     indices = []
 
@@ -749,25 +749,25 @@ def Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, u
         fp = 0  # Reset False Positives for each user
         fn = 0  # Reset False Negatives for each user
 
-        movies = recommendation['recommended_movies']
+        brewerys = recommendation['recommended_brewerys']
         user_idx = user_id_map[recommendation['User_ID']]
 
-        if len(movies) > 0:
+        if len(brewerys) > 0:
             # Extract actual ratings and indices for the current user
             user_actual_ratings = ground_truth_real_matrix[user_idx, :]
             actual_ratings.extend(user_actual_ratings)
             indices.extend([(user_idx, i) for i in range(len(user_actual_ratings))])
 
-            recommended_movies_count = len(movies)
+            recommended_brewerys_count = len(brewerys)
 
             # Calculate True Positives, False Positives, and False Negatives for the current user
             for i in range(len(user_actual_ratings)):
                 if np.any(user_actual_ratings[i] > 0):
-                    if i in [movie_id_map[movie['movie_id']] for movie in movies]:
+                    if i in [brewery_id_map[brewery['brewery_id']] for brewery in brewerys]:
                         tp += 1
                     else:
                         fn += 1
-                elif i in [movie_id_map[movie['movie_id']] for movie in movies]:
+                elif i in [brewery_id_map[brewery['brewery_id']] for brewery in brewerys]:
                     fp += 1
 
             # Print information for each user, including the total number of rated items
@@ -837,29 +837,29 @@ def calculate_map(y_true, y_score):
 
     return ap_score
 
-def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map):
+def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, brewery_id_map):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
 
     for user_id, recommendation in recommendations_items.items():
-        movies = recommendation['recommended_movies']
+        brewerys = recommendation['recommended_brewerys']
         user_idx = user_id_map[recommendation['User_ID']]
 
-        if len(movies) > 0:
-            # Calculate the average rating of recommended movies
-            avg_rating = np.mean([movie['Overal_Rating'] for movie in movies])
+        if len(brewerys) > 0:
+            # Calculate the average rating of recommended brewerys
+            avg_rating = np.mean([brewery['Overal_Rating'] for brewery in brewerys])
 
-            for movie in movies:
-                movie_idx = movie_id_map[movie['movie_id']]
+            for brewery in brewerys:
+                brewery_idx = brewery_id_map[brewery['brewery_id']]
                 # Assign the average rating to the predicted rating matrix
-                predicted_ratings[user_idx, movie_idx] = avg_rating
+                predicted_ratings[user_idx, brewery_idx] = avg_rating
 
-                # Check if the user actually rated the movie and store the actual rating and index
-                actual_rating = ground_truth_real_matrix[user_idx, movie_idx]
+                # Check if the user actually rated the brewery and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, brewery_idx]
                 if np.any(actual_rating != 0):
                     actual_ratings.append(actual_rating)
-                    indices.append((user_idx, movie_idx))
+                    indices.append((user_idx, brewery_idx))
 
     actual_ratings = np.array(actual_ratings)
     indices = np.array(indices)
@@ -873,9 +873,9 @@ def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, 
     predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
     predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
 
-    # Consider Overal_Rating > 8 as positive ratings
-    positive_test = actual_test > 8
-    positive_predicted = predicted_test > 8
+    # Consider Overal_Rating > 3 as positive ratings
+    positive_test = actual_test > 3
+    positive_predicted = predicted_test > 3
 
     # Calculate true positives based on the new condition
     true_positives = np.sum(np.logical_and(positive_test, positive_predicted))
@@ -896,13 +896,13 @@ def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, 
     map_scores = []
 
     for i in range(len(test_indices)):
-        user_idx, movie_idx = test_indices[i]
-        user_actual = ground_truth_real_matrix[user_idx, movie_idx]
+        user_idx, brewery_idx = test_indices[i]
+        user_actual = ground_truth_real_matrix[user_idx, brewery_idx]
         user_predicted = predicted_test[i]
 
-        if np.any(user_actual > 8):  # Use np.any() instead of if user_actual > 8
-            # If the user actually rated the movie higher than 8, calculate AP for this user
-            ap_score = calculate_map(user_actual > 8, user_predicted)
+        if np.any(user_actual > 3):  # Use np.any() instead of if user_actual > 3
+            # If the user actually rated the brewery higher than 3, calculate AP for this user
+            ap_score = calculate_map(user_actual > 3, user_predicted)
             map_scores.append(ap_score)
 
     if len(map_scores) > 0:
@@ -944,13 +944,12 @@ def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, 
 if __name__ == "__main__":
     
     # Define the file path and criteria
-    # file_path = '/home/z5318340/MoviesDatasetYahoo.xlsx'
-    # file_path = '/home/z5318340/Movies_Modified_Rating_Scores.xlsx'
-    file_path = 'C://Yahoo//Movies.xlsx'
+
+    file_path = 'C://Yahoo//BeerAdvocate.xlsx'
     criteria = ['C1', 'C2', 'C3', 'C4'] 
 
-    # Call the read_data function to get user_id_map and movie_id_map
-    user_id_map, movie_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
+    # Call the read_data function to get user_id_map and brewery_id_map
+    user_id_map, brewery_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
 
     # Call other functions
     create_bipartite_graph(file_path, criteria)
@@ -959,39 +958,39 @@ if __name__ == "__main__":
 
     # Read data from the Excel file and create ID mappings
     user_ids = list(user_id_map.keys())
-    movie_ids = list(movie_id_map.keys())
+    brewery_ids = list(brewery_id_map.keys())
 
     # Call the function to create and normalize adjacency matrices
-    result = create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, movie_ids)
+    result = create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, brewery_ids)
 
     # Print or use the 'result' variable as needed
     # print(result)
     
-    matrices, _, _ = L_BGNN(file_path, criteria, user_ids, movie_ids)
+    matrices, _, _ = L_BGNN(file_path, criteria, user_ids, brewery_ids)
     matrix1, matrix2, matrix3, matrix4 = matrices
     
-    matrices, user_id_to_index, user_index_to_id = L_BGNN(file_path, criteria, user_ids, movie_ids)
+    matrices, user_id_to_index, user_index_to_id = L_BGNN(file_path, criteria, user_ids, brewery_ids)
     resized_matrices = resize_matrices(matrices)
                 
-    # Combine user_ids and movie_ids into a single list to build a unique mapping
-    combined_ids = np.concatenate((user_ids, movie_ids))
+    # Combine user_ids and brewery_ids into a single list to build a unique mapping
+    combined_ids = np.concatenate((user_ids, brewery_ids))
 
     # Create a mapping of unique IDs to unique integer values
     unique_ids = np.unique(combined_ids)
     id_to_int = {id_: i for i, id_ in enumerate(unique_ids)}
 
-    # Convert user_ids and movie_ids to integers using the mapping
+    # Convert user_ids and brewery_ids to integers using the mapping
     user_ids_int = np.array([id_to_int[user_id] for user_id in user_ids])
-    movie_ids_int = np.array([id_to_int[movie_id] for movie_id in movie_ids])
+    # brewery_ids_int = np.array([id_to_int[brewery_id] for brewery_id in brewery_ids])
     
-    # Convert user_ids_int and movie_ids_int to PyTorch tensors
+    # Convert user_ids_int and brewery_ids_int to PyTorch tensors
     user_ids_tensor = torch.tensor(user_ids_int).clone().detach()
-    movie_ids_tensor = torch.tensor(movie_ids_int).clone().detach()
+    # brewery_ids_tensor = torch.tensor(brewery_ids_int).clone().detach()
     
     #---Attention Embedding------
     # GAT and Fusion Embeddings
     model = GAT(in_channels=16, out_channels=256)
-    result = model.Multi_Embd(resized_matrices, user_ids_tensor, movie_ids_tensor, num_epochs=100, learning_rate=0.01)
+    result = model.Multi_Embd(resized_matrices, user_ids_tensor, brewery_ids, num_epochs=100, learning_rate=0.01)
     fused_embeddings_with_ids = result  # unpack the values you need
     print("Fused Embeddings:")
     print(fused_embeddings_with_ids)
@@ -1011,7 +1010,7 @@ if __name__ == "__main__":
     num_samples, num_features = fused_embeddings_tensor.shape
     num_users = len(user_ids)
     num_criteria = len(criteria)
-    num_movies = len(movie_ids)
+    num_brewerys = len(brewery_ids)
 
     # Calculate the total number of features per criterion
     num_features_per_criterion = num_features // num_criteria
@@ -1019,8 +1018,8 @@ if __name__ == "__main__":
     # Call the create_ground_truth_ratings function
     ground_truth_ratings = create_ground_truth_ratings(file_path, criteria)
 
-    # Create a DataFrame with user and movie identifiers as MultiIndex
-    df_users_movies = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, movie_id) for user_id in user_id_map.keys() for movie_id in movie_id_map.keys()]))
+    # Create a DataFrame with user and brewery identifiers as MultiIndex
+    df_users_brewerys = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, brewery_id) for user_id in user_id_map.keys() for brewery_id in brewery_id_map.keys()]))
     
     # normalized_Embeddings vectors of summed_embeddings
     normalized_H_F_embeddings = normalize_hadamard_embeddings(fused_embeddings_with_ids)
@@ -1033,8 +1032,8 @@ if __name__ == "__main__":
     recommendations_items = Generate_Recommendation(normalized_H_F_embeddings, file_path, criteria, threshold=0.9)
         
     # Call this function after calling evaluate_recommendations_Prediction
-    recommendations_movies = P_Recommendation_item_simplified(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)
-    mae, rmse = evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_movies, user_id_map, movie_id_map)
-    mae, rmse, mae_normalized, rmse_normalized = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map, data)
-    precision, recall, f1, f2 = Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
-    precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, movie_id_map)
+    recommendations_brewerys = P_Recommendation_item_simplified(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)
+    mae, rmse = evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_brewerys, user_id_map, brewery_id_map)
+    mae, rmse, mae_normalized, rmse_normalized = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, brewery_id_map, data)
+    precision, recall, f1, f2 = Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, brewery_id_map)
+    precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, brewery_id_map)

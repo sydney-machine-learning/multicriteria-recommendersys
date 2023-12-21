@@ -1,3 +1,4 @@
+
 import os
 import sys
 import networkx as nx
@@ -53,7 +54,7 @@ def read_data(file_path, criteria):
 
     return user_id_map, hotel_id_map, base_ground_truth_ratings
 
-def create_graph(file_path, criteria):
+def create_bipartite_graph(file_path, criteria):
     data = pd.read_excel(file_path)
     G = nx.MultiGraph()
 
@@ -64,49 +65,37 @@ def create_graph(file_path, criteria):
         G.add_node(uid, bipartite=0)
         users.add(uid)
 
-    for hid in data['Hotel_ID']:
-        G.add_node(hid, bipartite=1)
-        hotels.add(hid)
+    for mid in data['Hotel_ID']:
+        G.add_node(mid, bipartite=1)
+        hotels.add(mid)
 
     for i in range(len(data)):
         uid = data['User_ID'][i]
-        hid = data['Hotel_ID'][i]
+        mid = data['Hotel_ID'][i]
 
         for criterion in criteria:
             rating = data[criterion][i]
 
             if rating > 0:
-                G.add_edge(uid, hid, criterion=criterion, weight=rating)
+                G.add_edge(uid, mid, criterion=criterion, weight=rating)
 
-    user_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 0]
-    hotel_nodes = [node for node in G.nodes() if G.nodes[node]['bipartite'] == 1]
+    print(f"Number of user nodes: {len(users)}")
+    print(f"Number of hotel nodes: {len(hotels)}")
 
-    is_bipartite = nx.is_bipartite(G)
-
-    if is_bipartite:
-        print("The graph is bipartite.")
-    else:
-        print("The graph is not bipartite.")
-
-    print(f"Number of user nodes: {len(user_nodes)}")
-    print(f"Number of hotel nodes: {len(hotel_nodes)}")
-
-    user_hotel_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in user_nodes and v in hotel_nodes]
+    user_hotel_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in hotels]
     print(f"Number of edges between user and hotel nodes: {len(user_hotel_edges)}")
 
     for u, v, data in G.edges(data=True):
-        if u in users and v in hotels and 'criterion' in data and 'rating' in data:
+        if u in users and v in hotels and 'criterion' in data and 'weight' in data:
             user_id = u
             hotel_id = v
             criterion = data['criterion']
-            rating = data['rating']
+            rating = data['weight']  # Use the correct attribute name
 
-            # print(f"Edge between User_ID {str(user_id)} and Hotel_ID {str(hotel_id)} (Criterion: {str(criterion)}):")
-            # print(f"  Weight (Rating): {str(rating).encode('utf-8', 'replace').decode('utf-8')}")
+            # print(f"Edge between User_ID {user_id} and Hotel_ID {hotel_id} (Criterion: {criterion}):")
+            # print(f"  Weight (Rating): {rating}")
 
-    for u, v, data in G.edges(data=True):
-        weight = data['weight']
-        # print(f"Edge between {u} and {v} has weight: {weight}")
+    return G
 
 def create_subgraphs(file_path, criteria):
     graph_data = pd.read_excel(file_path)
@@ -332,35 +321,36 @@ class GAT(nn.Module):
 
         # Local Attention
         head_outs = [conv(x, edge_index) for conv in self.conv_layers]
-        x = torch.cat(head_outs, dim=-1)
+        x_local = torch.cat(head_outs, dim=-1)
 
         # Self-Attention within each head
-        self_attention = F.leaky_relu(self.fc(x))
+        self_attention = F.leaky_relu(self.fc(x_local))
         self_attention = F.softmax(self_attention, dim=-1)
 
-        # Multiply each element in x by the corresponding element in self_attention
-        x = x * self_attention
+        # Multiply each element in x_local by the corresponding element in self_attention
+        x_local = x_local * self_attention
 
         # Apply LeakyReLU activation
-        x = self.leakyrelu(x)
+        x_local = self.leakyrelu(x_local)
 
         # Apply Fully Connected Layer
-        x = self.fc(x)
+        x_local = self.fc(x_local)
 
         # Apply Layer Normalization
-        x = self.layer_norm(x)
+        x_local = self.layer_norm(x_local)
 
         # Apply L2 normalization along dimension 1
-        x = F.normalize(x, p=2, dim=1)
+        x_local = F.normalize(x_local, p=2, dim=1)
 
         # Global Attention
-        global_attention = F.relu(self.global_fc(x))
-
-        # Apply softmax to global_attention
+        x_global = torch.mean(x_local, dim=0)  # Aggregate information globally
+        # x_global = torch.sum(x_local, dim=0)  # Aggregate information globally using sum
+        
+        global_attention = F.relu(self.global_fc(x_global))
         global_attention = F.softmax(global_attention, dim=-1)
 
-        # Multiply each element in x by the corresponding element in global_attention
-        x = x * global_attention
+        # Multiply each element in x_local by the corresponding element in global_attention
+        x = x_local * global_attention
 
         return x
 
@@ -405,176 +395,150 @@ class GAT(nn.Module):
         fused_embeddings = torch.cat(padded_embeddings, dim=1)
         
         return fused_embeddings
+    
+    # def attention_fusion(embeddings_list):
+    #     attention_weights = torch.nn.Parameter(torch.ones(len(embeddings_list)))
+    #     attention_weights = F.softmax(attention_weights, dim=0)
 
-    def train_GAT(self, optimizer, data, embeddings_list, margin_triplet=0.1, margin_contrastive=0.1):
+    #     # Apply attention weights to embeddings
+    #     weighted_embeddings = [weight * embedding for weight, embedding in zip(attention_weights, embeddings_list)]
+
+    #     # Sum the weighted embeddings
+    #     fused_embeddings = torch.sum(torch.stack(weighted_embeddings), dim=0)
+
+    #     return fused_embeddings
+
+#--------------------------------------------------------------------------------------------*******************
+    # def triplet_margin_loss(self, inputs, embeddings_list, attention_weights, margin=0.1):
+    #     num_views = len(embeddings_list)
+    #     total_loss = torch.tensor(0.0)
+
+    #     if not embeddings_list:
+    #         return total_loss
+
+    #     for i in range(num_views):
+    #         anchor_embeddings = embeddings_list[i]
+    #         pos_distance = F.pairwise_distance(inputs, anchor_embeddings)
+
+    #         for j in range(num_views):
+    #             if i != j:
+    #                 negative_embeddings = embeddings_list[j]
+    #                 neg_distance = F.pairwise_distance(inputs, negative_embeddings)
+
+    #                 triplet_loss = F.relu(pos_distance - attention_weights[i] * neg_distance + margin)
+    #                 total_loss += triplet_loss.mean()
+
+    #     return total_loss
+
+    # def l2_regularization(self, l2_weight=0.1):
+    #     l2_reg = torch.norm(torch.stack([torch.norm(param, p=2) for param in self.parameters()]), p=2)
+    #     return l2_weight * l2_reg
+
+    # def similarity_loss(self, embeddings_list):
+    #     similarity_loss_value = torch.tensor(0.0)
+    #     num_views = len(embeddings_list)
+    #     attention_weights = torch.nn.Parameter(torch.ones(num_views))
+
+    #     for i in range(num_views):
+    #         for j in range(num_views):
+    #             view_i_embeddings = embeddings_list[i]
+    #             view_j_embeddings = embeddings_list[j]
+
+    #             min_size = min(view_i_embeddings.size(0), view_j_embeddings.size(0))
+    #             view_i_embeddings = view_i_embeddings[:min_size, :]
+    #             view_j_embeddings = view_j_embeddings[:min_size, :]
+
+    #             similarity_loss_value += attention_weights[i] * torch.mean(torch.abs(view_i_embeddings - view_j_embeddings))
+        
+    #     return similarity_loss_value
+
+    # def train_GAT(self, optimizer, data, embeddings_list, margin_triplet=0.1, alpha=0.1, beta=0.2):
+    #     self.train()
+    #     optimizer.zero_grad()
+    #     outputs = self(data.x, data.edge_index)
+    #     embeddings = outputs
+
+    #     num_views = len(embeddings_list)
+    #     attention_weights = torch.nn.Parameter(torch.ones(num_views))
+
+    #     triplet_loss = self.triplet_margin_loss(embeddings, embeddings_list, attention_weights, margin_triplet)
+    #     similarity_loss_value = self.similarity_loss(embeddings_list)
+    #     l2_reg = self.l2_regularization()
+
+    #     total_loss = (alpha * triplet_loss + beta * similarity_loss_value) + l2_reg
+    #     total_loss.backward()
+    #     optimizer.step()
+
+    #     return total_loss
+
+    def mse_loss(self, inputs, embeddings_list, attention_weights):
+        num_views = len(embeddings_list)
+        total_loss = torch.tensor(0.0)
+
+        if not embeddings_list:
+            return total_loss
+
+        for i in range(num_views):
+            anchor_embeddings = embeddings_list[i]
+            predicted_ratings = torch.matmul(inputs, anchor_embeddings.t())
+
+            for j in range(num_views):
+                if i != j:
+                    negative_embeddings = embeddings_list[j]
+                    neg_predicted_ratings = torch.matmul(inputs, negative_embeddings.t())
+
+                    # Use MSE loss between positive and negative pairs
+                    mse_loss = F.mse_loss(predicted_ratings, neg_predicted_ratings)
+                    total_loss += attention_weights[i] * mse_loss.mean()
+
+        return total_loss
+    
+    def l2_regularization(self, l2_weight=0.1):
+        l2_reg = torch.norm(torch.stack([torch.norm(param, p=2) for param in self.parameters()]), p=2)
+        return l2_weight * l2_reg
+
+    def global_similarity_loss(self, embeddings_list):
+        global_similarity_loss_value = torch.tensor(0.0)
+        num_views = len(embeddings_list)
+
+        # Compute global similarity loss between all pairs of views
+        for i in range(num_views):
+            for j in range(num_views):
+                if i != j:
+                    view_i_embeddings = embeddings_list[i]
+                    view_j_embeddings = embeddings_list[j]
+
+                    min_size = min(view_i_embeddings.size(0), view_j_embeddings.size(0))
+                    view_i_embeddings = view_i_embeddings[:min_size, :]
+                    view_j_embeddings = view_j_embeddings[:min_size, :]
+
+                    global_similarity_loss_value += torch.mean(torch.abs(view_i_embeddings - view_j_embeddings))
+
+        return global_similarity_loss_value
+
+    def train_GAT(self, optimizer, data, embeddings_list, alpha=0.1, beta=0.2, gamma=0.5):
         self.train()
         optimizer.zero_grad()
         outputs = self(data.x, data.edge_index)
         embeddings = outputs
 
-        # Triplet margin loss
-        triplet_loss = self.triplet_margin_loss(embeddings, embeddings_list, margin_triplet)
+        num_views = len(embeddings_list)
+        attention_weights = torch.nn.Parameter(torch.ones(num_views))
 
-        # Contrastive loss
-        contrastive_loss = self.contrastive_loss(embeddings, embeddings_list, margin_contrastive)
-
-        # Add L2 regularization
+        mse_loss = self.mse_loss(embeddings, embeddings_list, attention_weights)
+        global_similarity_loss_value = self.global_similarity_loss(embeddings_list)
         l2_reg = self.l2_regularization()
 
-        # Total loss
-        total_loss = triplet_loss + contrastive_loss + l2_reg
+        # Combine MSE loss, Similarity loss, and L2 regularization
+        total_loss = (alpha * mse_loss + beta * global_similarity_loss_value) + gamma * l2_reg
 
+        # Update attention weights based on MSE loss and Similarity loss
+        attention_weights.grad = None  # Clear previous gradients
         total_loss.backward()
         optimizer.step()
 
-        return total_loss.item()
-    
-    def triplet_margin_loss(self, inputs, embeddings_list, margin=0.1):
-        num_views = len(embeddings_list)
-        total_loss = torch.tensor(0.0)
-
-        # Check if the embeddings_list is not empty
-        if not embeddings_list:
-            return total_loss
-
-        for i in range(num_views):
-            anchor_embeddings = embeddings_list[i]
-
-            for j in range(num_views):
-                if i != j:
-                    negative_embeddings = embeddings_list[j]
-
-                    # Pairwise distances
-                    pos_distance = F.pairwise_distance(inputs, anchor_embeddings)
-                    neg_distance = F.pairwise_distance(inputs, negative_embeddings)
-
-                    # Triplet margin loss
-                    triplet_loss = F.relu(pos_distance - neg_distance + margin)
-
-                    total_loss += triplet_loss.mean()
-
         return total_loss
-
-    def l2_regularization(self, l2_weight=0.1):
-        l2_reg = torch.tensor(0.0)
-
-        for param in self.parameters():
-            l2_reg += torch.norm(param, p=2)
-
-        return l2_weight * l2_reg
-
-    def contrastive_loss(self, inputs, embeddings_list, margin=0.1):
-        num_views = len(embeddings_list)
-        total_loss = torch.tensor(0.0)
-
-        # Check if the embeddings_list is not empty
-        if not embeddings_list:
-            return total_loss
-
-        for i in range(num_views):
-            anchor_embeddings = embeddings_list[i]
-
-            for j in range(num_views):
-                if i != j:
-                    negative_embeddings = embeddings_list[j]
-
-                    # Pairwise distances
-                    pos_distance = F.pairwise_distance(inputs, anchor_embeddings)
-                    neg_distance = F.pairwise_distance(inputs, negative_embeddings)
-
-                    # Contrastive loss
-                    contrastive_loss = F.relu(margin - pos_distance + neg_distance)
-
-                    total_loss += contrastive_loss.mean()
-
-        return total_loss
-#---------------------------------
-
-class MultiCriteriaRecommender(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, dropout_rate=0.2):
-        super(MultiCriteriaRecommender, self).__init__()
-
-        # Define your neural network layers
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.dropout1 = nn.Dropout(dropout_rate)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.dropout2 = nn.Dropout(dropout_rate)
-        self.fc3 = nn.Linear(hidden_dim, output_dim)
-
-    def forward(self, x):
-        # Reshape the input tensor to (num_samples, num_features) before passing through linear layers
-        x = x.view(x.size(0), -1)
-        
-        # Continue with the rest of the neural network layers as before
-        x = F.relu(self.fc1(x))
-        x = self.dropout1(x)
-        x = F.relu(self.fc2(x))
-        x = self.dropout2(x)
-        x = self.fc3(x)
-        x = torch.sigmoid(x)  # Apply sigmoid activation
-        return x
     
-    def sigmoid_prediction(self, fused_embeddings):
-        with torch.no_grad():  
-            # Generate predictions using the model on the fused_embeddings
-            sigmoid_output = self(fused_embeddings)
-
-            # Apply sigmoid activation to the sigmoid_output
-            sigmoid_output = 1 / (1 + torch.exp(-sigmoid_output))
-
-        return fused_embeddings, sigmoid_output  # Return both original embeddings and sigmoid predictions
-    
-    def hadamard_product(self, fused_embeddings, sigmoid_predictions):
-        # Ensure that sigmoid_predictions has the same shape as fused_embeddings
-        sigmoid_predictions = sigmoid_predictions.view(fused_embeddings.shape)
-
-        # Element-wise multiplication (Hadamard product) between fused_embeddings and sigmoid_predictions
-        fused_embeddings_hadamard = fused_embeddings * sigmoid_predictions
-
-        return fused_embeddings_hadamard
-
-def mse_loss(inputs, reconstructions):
-    mse = nn.MSELoss(reduction='mean')
-    return mse(reconstructions, inputs)
-
-def mse_with_l2_loss(inputs, reconstructions, model, l2_weight=0.01):
-    mse = mse_loss(inputs, reconstructions)
-    
-    l2_reg = torch.tensor(0., device=inputs.device).clone().detach()
-    for param in model.parameters():
-        l2_reg += torch.norm(param, p=2)
-    total_loss = mse + l2_weight * l2_reg
-    return total_loss
-
-def train_model(model, train_data, num_epochs, learning_rate=0.01, l2_weight=0.01):
-    # Ensure consistent device placement for tensors
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_samples, num_features = train_data.shape
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-
-    for epoch in range(num_epochs):
-        model.train()
-        optimizer.zero_grad()
-
-        train_data_tensor = train_data.clone().detach()
-        outputs = model(train_data_tensor)
-
-        # Reshape the outputs tensor to match the shape of train_data_tensor
-        outputs_reshaped = outputs.view(train_data_tensor.shape)
-
-        # Use sigmoid_prediction function
-        fused_embeddings, sigmoid_predictions = model.sigmoid_prediction(train_data_tensor)
-        fused_embeddings_hadamard = model.hadamard_product(fused_embeddings, sigmoid_predictions)
-
-        loss = mse_with_l2_loss(train_data_tensor, outputs_reshaped, model, l2_weight)
-        loss.backward()
-        optimizer.step()
-
-        if epoch % 10 == 0:
-            print(f"Epoch {epoch} Loss: {loss.item():.4f}")
-
-    print("MLP Training completed.")
-
 # -------------Recommendation Section -------------------------
 
 def create_ground_truth_ratings(file_path, criteria):  
@@ -594,10 +558,11 @@ def create_ground_truth_ratings(file_path, criteria):
     # Additional columns
     data['Overal_Rating'] = 0
     data['hotel_id'] = ''  # Add the 'hotel_id' column
+    data['Number_Rated_Items'] = 0  # Add the 'Number_Rated_Items' column
 
     for i, row in data.iterrows():
         uid = row['User_ID']
-        hid = row['Hotel_ID']
+        mid = row['Hotel_ID']
         criterion_ratings = [row[criterion] for criterion in criteria]
         
         # Calculate average rating for criteria with a rating greater than 0
@@ -606,38 +571,123 @@ def create_ground_truth_ratings(file_path, criteria):
 
         # Assign values to additional columns
         data.at[i, 'Overal_Rating'] = Overal_Rating
-        data.at[i, 'hotel_id'] = hid
+        data.at[i, 'hotel_id'] = mid
+
+        # Calculate and assign the number of rated items by each user
+        num_rated_items_by_user = np.sum(data[data['User_ID'] == uid][criteria].apply(lambda x: (x > 0).any(), axis=1))
+        data.at[i, 'Number_Rated_Items'] = num_rated_items_by_user
         
-        if uid in user_id_map and hid in hotel_id_map:
+        if uid in user_id_map and mid in hotel_id_map:
             user_idx = user_id_map[uid]
-            hotel_idx = hotel_id_map[hid]
+            hotel_idx = hotel_id_map[mid]
             ground_truth_ratings_matrix[user_idx, hotel_idx] = criterion_ratings
-
-    # # Print the resulting ground_truth_ratings_matrix
-    # print("Ground Truth Ratings Matrix:")
-    # print(ground_truth_ratings_matrix)
-
-    # # Print the DataFrame with additional columns
-    # print("\nDataFrame with Additional Columns:")
-    # print(data)
 
     return data, ground_truth_ratings_matrix
 
-# ------------------------------------------------------------------------------------------
-# ---------------------------------Evaluate MCRS based-Prediction ---------------------------
-# ---------------------------------------------------------------------------------------
-
-def normalize_hadamard_embeddings(fused_embeddings_hadamard):
+def normalize_hadamard_embeddings(fused_embeddings):
     # Detach PyTorch tensors
-    fused_embeddings_hadamard = fused_embeddings_hadamard.detach().numpy()
+    fused_embeddings = fused_embeddings.detach().numpy()
 
     # Create a MinMaxScaler instance
     scaler = MinMaxScaler()
 
     # Fit the scaler on the summed_embeddings and transform them
-    normalized_embeddings = scaler.fit_transform(fused_embeddings_hadamard)
+    normalized_embeddings = scaler.fit_transform(fused_embeddings)
 
     return normalized_embeddings
+
+def P_Recommendation_item_simplified(normalized_embeddings, file_path, criteria, threshold_A=0.9, top_k=1):
+    data, _ = create_ground_truth_ratings(file_path, criteria)
+    recommendations_hotels = {}
+
+    num_users_actual, _ = normalized_embeddings.shape
+    normalized_embeddings_2d = normalized_embeddings.reshape((num_users_actual, -1))
+    similarities = cosine_similarity(normalized_embeddings_2d)
+
+    # Counter variable to limit the number of printed users
+    printed_users_count = 0
+
+    for i in range(num_users_actual):
+        similar_user_index = np.argsort(similarities[i])[::-1][:top_k]
+
+        similar_user_hotels = data.iloc[similar_user_index]
+
+        similar_user_rated_hotels = similar_user_hotels.groupby(['User_ID', 'Hotel_ID'])['Overal_Rating'].mean().reset_index()
+        similar_user_rated_hotels = similar_user_rated_hotels.sort_values(by='Overal_Rating', ascending=False)
+
+        # Apply the threshold_A to filter out low-rated recommendations
+        similar_user_rated_hotels = similar_user_rated_hotels[similar_user_rated_hotels['Overal_Rating'] >= threshold_A]
+
+        # Take the top-K recommendations after applying the threshold_A
+        similar_user_rated_hotels = similar_user_rated_hotels.head(top_k)
+
+        # Create the recommendation
+        recommended_hotels = similar_user_rated_hotels.to_dict(orient='records')
+
+        # Add 'hotel_id' to each hotel dictionary
+        for hotel in recommended_hotels:
+            hotel['hotel_id'] = hotel['Hotel_ID']
+
+        recommendations_hotels[data.iloc[i]['User_ID']] = {
+            'User_ID': data.iloc[i]['User_ID'],
+            'recommended_hotels': recommended_hotels,
+            'hotel_id': data.iloc[i]['Hotel_ID'],
+            'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
+        }
+
+        # # Print recommendations for the specified number of users
+        # if printed_users_count < 5:
+        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_hotels[data.iloc[i]['User_ID']]}")
+        #     printed_users_count += 1
+        # else:
+        #     break  # Break out of the loop once 10 users are printed
+
+    return recommendations_hotels
+
+def evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_hotels, user_id_map, hotel_id_map):
+    predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
+    actual_ratings = []
+    indices = []
+
+    for user_id, recommendation in recommendations_hotels.items():
+        hotels = recommendation['recommended_hotels']
+        user_idx = user_id_map[recommendation['User_ID']]
+        
+        if len(hotels) > 0:
+            # Calculate the average rating of recommended hotels
+            avg_rating = np.mean([hotel['Overal_Rating'] for hotel in hotels])
+
+            for hotel in hotels:
+                hotel_idx = hotel_id_map[hotel['hotel_id']]
+                # Assign the average rating to the predicted rating matrix
+                predicted_ratings[user_idx, hotel_idx] = avg_rating
+                
+                # Check if the user actually rated the hotel and store the actual rating and index
+                actual_rating = ground_truth_real_matrix[user_idx, hotel_idx]
+                if np.any(actual_rating != 0):
+                    actual_ratings.append(actual_rating)
+                    indices.append((user_idx, hotel_idx))
+
+    actual_ratings = np.array(actual_ratings)
+    indices = np.array(indices)
+
+    # Split the indices into training and testing sets
+    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.3)
+
+    # Extract corresponding values from the predicted ratings matrix
+    actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
+    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
+    predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
+    predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
+
+    mae = mean_absolute_error(actual_test, predicted_test)
+    rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
+    
+    # Print the results
+    print(f"\nMAE based scores of (1-5) and one item: {mae}")
+    print(f"RMSE based scores of (1-5) one item: {rmse}")
+ 
+    return mae, rmse
 
 def Generate_Recommendation(normalized_embeddings, file_path, criteria, threshold=0.9):
     
@@ -741,11 +791,11 @@ def evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendation
     rmse_normalized = np.sqrt(mean_squared_error(actual_test_normalized, predicted_test_normalized))
 
     # Print the results
-    print(f"\nMAE: {mae}")
-    print(f"RMSE: {rmse}")
+    print(f"\nMAE based score (1-5) and K-items : {mae}")
+    print(f"RMSE based score (1-5) and K-items : {rmse}")
     # Print the results
-    print(f"\nMAE (Normalized): {mae_normalized}")
-    print(f"RMSE (Normalized): {rmse_normalized}")
+    print(f"\nMAE (Normalized based score (0-1) and K users): {mae_normalized}")
+    print(f"RMSE (Normalized based score (0-1) and K users): {rmse_normalized}")
  
     return mae, rmse, mae_normalized, rmse_normalized
 
@@ -951,30 +1001,23 @@ def Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, 
 
     return precision, recall, f1, f2, map_score, mrr_score, ap_score
 
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------------------
 # Main Function ---------------------------
 # ---------------------------------------------------------------------------------------
-
 
 if __name__ == "__main__":
     
     # Define the file path and criteria
     file_path = 'C://Yahoo//TripAdvisor.xlsx'
+    # file_path = '/home/z5318340/TripAdvisor_4.xlsx'
     criteria = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']
+
 
     # Call the read_data function to get user_id_map and hotel_id_map
     user_id_map, hotel_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
 
     # Call other functions
-    create_graph(file_path, criteria)
+    create_bipartite_graph(file_path, criteria)
     print("**************************")
     create_subgraphs(file_path, criteria)
 
@@ -1013,10 +1056,10 @@ if __name__ == "__main__":
     # GAT and Fusion Embeddings
     model = GAT(in_channels=16, out_channels=256)
     result = model.Multi_Embd(resized_matrices, user_ids_tensor, hotel_ids_tensor, num_epochs=100, learning_rate=0.01)
-    print(result)
     fused_embeddings_with_ids = result  # unpack the values you need
     print("Fused Embeddings:")
     print(fused_embeddings_with_ids)
+    print("*********************")
     print("*********************")
     #---MLP model------
     # Recommendation section
@@ -1024,7 +1067,6 @@ if __name__ == "__main__":
 
     # Create an instance of the MultiCriteriaRecommender class
     output_dim = fused_embeddings_with_ids.shape[1]  # Set output_dim to the number of criteria
-    model = MultiCriteriaRecommender(fused_embeddings_with_ids.shape[1], 32, output_dim)
 
     # Convert fused_embeddings_with_ids to a torch tensor
     fused_embeddings_tensor = fused_embeddings_with_ids.clone().detach().to(torch.float32)
@@ -1037,44 +1079,30 @@ if __name__ == "__main__":
 
     # Calculate the total number of features per criterion
     num_features_per_criterion = num_features // num_criteria
-    
-    # Train the model
-    train_model(model, fused_embeddings_tensor, num_epochs=100, learning_rate=0.01, l2_weight=0.01)
-
-    # After training, you can call the methods for prediction
-    fused_embeddings, sigmoid_predictions = model.sigmoid_prediction(fused_embeddings_tensor)
-    fused_embeddings_hadamard = model.hadamard_product(fused_embeddings, sigmoid_predictions)
-    # print("Shape of fused_embeddings_hadamard:", fused_embeddings_hadamard.shape)
-    
+        
     # Call the create_ground_truth_ratings function
     ground_truth_ratings = create_ground_truth_ratings(file_path, criteria)
 
     # Create a DataFrame with user and hotel identifiers as MultiIndex
     df_users_hotels = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, hotel_id) for user_id in user_id_map.keys() for hotel_id in hotel_id_map.keys()]))
-
-    # Set parameters
-    similarity_threshold = 0.5  # Adjust as needed
-    top_k_values = [10] * len(user_id_map)  # Set the default value of k for each user
+    
+    # normalized_Embeddings vectors of summed_embeddings
+    normalized_H_F_embeddings = normalize_hadamard_embeddings(fused_embeddings_with_ids)
+    # print("Normalize:",normalized_H_F_embeddings)
     
     # Call the create_real_ratings function
     data, ground_truth_real_matrix = create_ground_truth_ratings(file_path, criteria)
     # Call the P_Recommendation_item function
-    
-    # normalized_Embeddings vectors of summed_embeddings
-    normalized_H_F_embeddings = normalize_hadamard_embeddings(fused_embeddings_hadamard)
-    print("Normalize:",normalized_H_F_embeddings)
-    
-    # recommendations_items = P_Recommendation_item(normalized_H_F_embeddings, similarity_threshold, top_k_Pre, file_path, criteria)
+    # recommendations_items = P_Recommendation_item(normalized_embeddings, similarity_threshold, top_k_Pre, file_path, criteria)
     recommendations_items = Generate_Recommendation(normalized_H_F_embeddings, file_path, criteria, threshold=0.9)
-
-
+        
     # Call this function after calling evaluate_recommendations_Prediction
+    recommendations_hotels = P_Recommendation_item_simplified(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)
+    mae, rmse = evaluate_recommendations_Prediction_Unnormalize(ground_truth_real_matrix, recommendations_hotels, user_id_map, hotel_id_map)
     mae, rmse, mae_normalized, rmse_normalized = evaluate_Recommendations_Prediction(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map, data)
     precision, recall, f1, f2 = Evaluate_RS_ManualMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
     precision, recall, f1, f2, map_score, mrr_score, ap_score = Evaluate_RS_LibraryMetrics(ground_truth_real_matrix, recommendations_items, user_id_map, hotel_id_map)
 
 
-
-
-
+    
 
