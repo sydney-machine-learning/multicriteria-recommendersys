@@ -1,0 +1,105 @@
+Number of user nodes: 8831
+Number of item nodes: 3033
+Number of edges between user and item nodes: 3199993
+Training GAT graph A_C1
+Epoch 0, Loss 1.2568
+Epoch 10, Loss 0.8735
+Epoch 20, Loss 0.6843
+Epoch 30, Loss 0.5625
+Epoch 40, Loss 0.4701
+Epoch 50, Loss 0.3831
+Epoch 60, Loss 0.2962
+Epoch 70, Loss 0.2112
+Epoch 80, Loss 0.1270
+Epoch 90, Loss 0.0475
+Training GAT graph A_C2
+Epoch 0, Loss 0.0309
+Epoch 10, Loss 0.0202
+Epoch 20, Loss 0.0195
+Epoch 30, Loss 0.0160
+Epoch 40, Loss 0.0117
+Epoch 50, Loss 0.0088
+Epoch 60, Loss 0.0106
+Epoch 70, Loss 0.0105
+Epoch 80, Loss 0.0104
+Epoch 90, Loss 0.0080
+Training GAT graph A_C3
+Epoch 0, Loss 0.0089
+Epoch 10, Loss 0.0090
+Epoch 20, Loss 0.0084
+Epoch 30, Loss 0.0082
+Epoch 40, Loss 0.0098
+Epoch 50, Loss 0.0104
+Epoch 60, Loss 0.0078
+Epoch 70, Loss 0.0079
+Epoch 80, Loss 0.0099
+Epoch 90, Loss 0.0105
+Training GAT graph A_C4
+Epoch 0, Loss 0.0078
+Epoch 10, Loss 0.0073
+Epoch 20, Loss 0.0078
+Epoch 30, Loss 0.0079
+Epoch 40, Loss 0.0071
+Epoch 50, Loss 0.0065
+Epoch 60, Loss 0.0069
+Epoch 70, Loss 0.0067
+Epoch 80, Loss 0.0074
+Epoch 90, Loss 0.0059
+Fused Embeddings:
+tensor([[ 8.5464e-05,  2.0694e-04,  2.3931e-04,  ..., -1.1691e-04,
+          1.3305e-04, -3.9030e-04],
+        [ 8.5470e-05,  2.0694e-04,  2.3928e-04,  ..., -1.1691e-04,
+          1.3305e-04, -3.9030e-04],
+        [ 8.5463e-05,  2.0694e-04,  2.3931e-04,  ..., -1.1691e-04,
+          1.3305e-04, -3.9030e-04],
+        ...,
+        [ 8.5481e-05,  2.0693e-04,  2.3930e-04,  ..., -1.1691e-04,
+          1.3305e-04, -3.9030e-04],
+        [ 8.5474e-05,  2.0690e-04,  2.3932e-04,  ..., -1.1691e-04,
+          1.3305e-04, -3.9030e-04],
+        [ 8.5454e-05,  2.0693e-04,  2.3930e-04,  ..., -1.1691e-04,
+          1.3305e-04, -3.9030e-04]])
+
+MAE based Fixed Test/train Size: 0.4462555715443571
+RMSE based Fixed  Test/train Size: 0.6065826530456543
+
+Average MAE based on the Cross Validation: 0.4256943321228027
+Average RMSE based on the Cross Validation: 0.5788636612892151
++----------------------------+------------------+
+| Manual Metrics             |            Score |
++============================+==================+
+| Total number of indices    |      9.42353e+06 |
++----------------------------+------------------+
+| Number of training indices |      7.53882e+06 |
++----------------------------+------------------+
+| Number of testing indices  |      1.88471e+06 |
++----------------------------+------------------+
+| True Positives (tp)        |   4832           |
++----------------------------+------------------+
+| False Positives (fp)       |  63103           |
++----------------------------+------------------+
+| False Negatives (fn)       | 198035           |
++----------------------------+------------------+
+| Precision                  |      0.0711268   |
++----------------------------+------------------+
+| Recall                     |      0.0238186   |
++----------------------------+------------------+
+| F1                         |      0.0356866   |
++----------------------------+------------------+
+| F2                         |      0.0274732   |
++----------------------------+------------------+
+
+================================================================================
+                     Resource Usage on 08/02/2024 08:41:38                      
+
+Job Id: 5124676 
+Queue: MATHS
+Walltime: 70:03:48  (requested 80:00:00)
+Job execution was successful. Exit Status 0. 
+
+--------------------------------------------------------------------------------
+|              |             CPUs              |            Memory             |
+--------------------------------------------------------------------------------
+| Node         | Requested   Used   Efficiency | Requested   Used   Efficiency |
+| k147         |    32       1.21      4.0%    |  32.0gb    20.39gb    63.7%   |
+--------------------------------------------------------------------------------
