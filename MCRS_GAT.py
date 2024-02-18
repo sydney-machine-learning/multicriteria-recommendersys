@@ -1,4 +1,3 @@
-
 import os
 import sys
 import networkx as nx
@@ -28,6 +27,9 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 from sklearn.metrics import fbeta_score, average_precision_score
 from tabulate import tabulate
 from sklearn.model_selection import KFold
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+import matplotlib.pyplot as plt
+
 
 
 
@@ -452,7 +454,7 @@ class GAT(nn.Module):
 
         return global_similarity_loss_value
 
-    def train_GAT(self, optimizer, data, embeddings_list, alpha=0.1, beta=0.2, gamma=0.5):
+    def train_GAT(self, optimizer, data, embeddings_list, alpha=0.5, beta=0.5, gamma=0.1):
         self.train()
         optimizer.zero_grad()
         outputs = self(data.x, data.edge_index)
@@ -474,7 +476,6 @@ class GAT(nn.Module):
         optimizer.step()
 
         return total_loss
-
     
 # -------------Recommendation Section -------------------------
 
@@ -534,6 +535,10 @@ def normalize_hadamard_embeddings(fused_embeddings):
     return normalized_embeddings
 #----------------------------------------
 
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
 def Recommendation_items_Fixed_TopK(normalized_embeddings, file_path, criteria, threshold_A=0.9, top_k=1):
     data, _ = create_ground_truth_ratings(file_path, criteria)
     recommendations_f_items = {}
@@ -541,9 +546,6 @@ def Recommendation_items_Fixed_TopK(normalized_embeddings, file_path, criteria, 
     num_users_actual, _ = normalized_embeddings.shape
     normalized_embeddings_2d = normalized_embeddings.reshape((num_users_actual, -1))
     similarities = cosine_similarity(normalized_embeddings_2d)
-
-    # Counter variable to limit the number of printed users
-    printed_users_count = 0
 
     for i in range(num_users_actual):
         similar_user_index = np.argsort(similarities[i])[::-1][:top_k]
@@ -553,16 +555,12 @@ def Recommendation_items_Fixed_TopK(normalized_embeddings, file_path, criteria, 
         similar_user_rated_items = similar_user_items.groupby(['User_ID', 'Items_ID'])['Overal_Rating'].mean().reset_index()
         similar_user_rated_items = similar_user_rated_items.sort_values(by='Overal_Rating', ascending=False)
 
-        # Apply the threshold_A to filter out low-rated recommendations
         similar_user_rated_items = similar_user_rated_items[similar_user_rated_items['Overal_Rating'] >= threshold_A]
 
-        # Take the top-K recommendations after applying the threshold_A
         similar_user_rated_items = similar_user_rated_items.head(top_k)
 
-        # Create the recommendation
         recommended_items = similar_user_rated_items.to_dict(orient='records')
 
-        # Add 'item_id' to each item dictionary
         for item in recommended_items:
             item['item_id'] = item['Items_ID']
 
@@ -572,271 +570,80 @@ def Recommendation_items_Fixed_TopK(normalized_embeddings, file_path, criteria, 
             'item_id': data.iloc[i]['Items_ID'],
             'Overal_Rating': float(data.iloc[i]['Overal_Rating'])  
         }
-
-        # # Print recommendations for the specified number of users
-        # if printed_users_count < 5:
-        #     print(f"Recommendations for User {data.iloc[i]['User_ID']}: {recommendations_f_items[data.iloc[i]['User_ID']]}")
-        #     printed_users_count += 1
-        # else:
-        #     break  # Break out of the loop once 10 users are printed
-
     return recommendations_f_items
 
-def evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map):
+def evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train_size, test_size):
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
 
+    # Calculate predicted ratings and gather actual ratings and indices
     for user_id, recommendation in recommendations_f_items.items():
         items = recommendation['recommended_items']
         user_idx = user_id_map[recommendation['User_ID']]
-        
-        if len(items) > 0:
-            # Calculate the average rating of recommended items
-            avg_rating = np.mean([item['Overal_Rating'] for item in items])
 
-            for item in items:
-                item_idx = item_id_map[item['item_id']]
-                # Assign the average rating to the predicted rating matrix
-                predicted_ratings[user_idx, item_idx] = avg_rating
-                
-                # Check if the user actually rated the item and store the actual rating and index
-                actual_rating = ground_truth_real_matrix[user_idx, item_idx]
-                if np.any(actual_rating != 0):
-                    actual_ratings.append(actual_rating)
-                    indices.append((user_idx, item_idx))
+        for item in items:
+            item_id = item['item_id']
+            item_idx = item_id_map[item_id]
+            predicted_ratings[user_idx, item_idx] = item['Overal_Rating']  # Assign the actual rating instead of average rating
+                    
+            actual_rating = ground_truth_real_matrix[user_idx, item_idx]
+            if np.any(actual_rating != 0):
+                actual_ratings.append(actual_rating)
+                indices.append((user_idx, item_idx))
 
-    actual_ratings = np.array(actual_ratings)
+    # Convert indices to numpy array
     indices = np.array(indices)
+    
+    # Split indices into training and testing sets based on given train and test sizes
+    train_indices, test_indices = train_test_split(indices, train_size=train_size, test_size=test_size)
 
-    # Split the indices into training and testing sets
-    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.2)
-
-    # Extract corresponding values from the predicted ratings matrix
+    # Extract corresponding values from the ground_truth_real_matrix for training and testing sets
     actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
     actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
     predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
     predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
 
+    # Print sections from ground_truth_real_matrix
+    print("Training Section:")
+    print(ground_truth_real_matrix[train_indices[:, 0], :])
+    print("\nTesting Section:")
+    print(ground_truth_real_matrix[test_indices[:, 0], :])
+
+    # Calculate evaluation metrics
     mae = mean_absolute_error(actual_test, predicted_test)
     rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
     
-    # Print the results
-    print(f"\nMAE based Fixed Test/train Size: {mae}")
-    print(f"RMSE based Fixed  Test/train Size: {rmse}")
- 
+    # Print evaluation metrics for the testing set
+    print(f"\nMAE based on Fixed Test Size: {mae}")
+    print(f"RMSE based on Fixed Test Size: {rmse}")
+    
     return mae, rmse
 
-def evaluate_crossfold_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map):
-    predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
-    actual_ratings = []
-    indices = []
-
-    mae_values = []
-    rmse_values = []
-
-    for user_id, recommendation in recommendations_f_items.items():
-        items = recommendation['recommended_items']
-        user_idx = user_id_map[recommendation['User_ID']]
-        
-        if len(items) > 0:
-            # Calculate the average rating of recommended items
-            avg_rating = np.mean([item['Overal_Rating'] for item in items])
-
-            for item in items:
-                item_idx = item_id_map[item['item_id']]
-                # Assign the average rating to the predicted rating matrix
-                predicted_ratings[user_idx, item_idx] = avg_rating
-                
-                # Check if the user actually rated the item and store the actual rating and index
-                actual_rating = ground_truth_real_matrix[user_idx, item_idx]
-                if np.any(actual_rating != 0):
-                    actual_ratings.append(actual_rating)
-                    indices.append((user_idx, item_idx))
-
-    actual_ratings = np.array(actual_ratings)
-    indices = np.array(indices)
-
-    # Perform 5-fold cross-validation
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-
-    for train_index, test_index in kf.split(indices):
-        train_indices, test_indices = indices[train_index], indices[test_index]
-
-        # Extract corresponding values from the predicted ratings matrix
-        actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
-        actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
-        predicted_train = predicted_ratings[train_indices[:, 0], train_indices[:, 1]]
-        predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
-
-        mae = mean_absolute_error(actual_test, predicted_test)
-        rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
-
-        # Print the results for each fold
-        # print(f"\nFold - MAE: {mae}, RMSE: {rmse}")
-
-        # Store MAE and RMSE values for each fold
-        mae_values.append(mae)
-        rmse_values.append(rmse)
-
-    # Calculate and print the average MAE and RMSE across all folds
-    average_mae = np.mean(mae_values)
-    average_rmse = np.mean(rmse_values)
-    print(f"\nAverage MAE based on the Cross Validation: {average_mae}")
-    print(f"Average RMSE based on the Cross Validation: {average_rmse}")
-
-    return average_mae, average_rmse
-
-
-#----------------------------------------------
-#--------------------------------------------------
-
-def Recommendation_items_Dynamic_TopK(normalized_embeddings, file_path, criteria, threshold=0.9):
-    
-    data, _ = create_ground_truth_ratings(file_path, criteria)
-    recommendations_items = {}
-
-    num_users_actual, _ = normalized_embeddings.shape
-    normalized_embeddings_2d = normalized_embeddings.reshape((num_users_actual, -1))
-    similarities = cosine_similarity(normalized_embeddings_2d)
-
-    for user_index in range(num_users_actual):
-        user_id = data.iloc[user_index]['User_ID']
-
-        # Dynamically set top_k based on the number of items the user has rated
-        user_data = data[data['User_ID'] == user_id]
-        top_k_user = min(len(user_data), num_users_actual)
-
-        similar_user_index = np.argsort(similarities[user_index])[::-1]
-
-        # Get the top-K similar users
-        similar_user_index = similar_user_index[:top_k_user]
-
-        similar_user_items = data.iloc[similar_user_index]
-
-        similar_user_rated_items = similar_user_items.groupby(['User_ID', 'Items_ID'])['Overal_Rating'].mean().reset_index()
-        similar_user_rated_items = similar_user_rated_items.sort_values(by='Overal_Rating', ascending=False)
-
-        # Apply the threshold to filter out low-rated recommendations
-        similar_user_rated_items = similar_user_rated_items[similar_user_rated_items['Overal_Rating'] >= threshold]
-
-        # Take the top-K recommendations after applying the threshold
-        similar_user_rated_items = similar_user_rated_items.head(top_k_user)
-
-        # Create the recommendation
-        recommended_items = similar_user_rated_items.to_dict(orient='records')
-
-        # Add 'item_id' to each item dictionary
-        for item in recommended_items:
-            item['item_id'] = item['Items_ID']
-
-        recommendations_items[user_id] = {
-            'User_ID': user_id,
-            'recommended_items': recommended_items,
-            'item_id': data.iloc[user_index]['Items_ID'],
-            'Overal_Rating': float(data.iloc[user_index]['Overal_Rating'])  
-        }
-
-    # # Print the number of recommendations for each user outside the loop
-    # for user_id, recommendation in recommendations_items.items():
-    #     print(f"User {user_id} has {len(recommendation['recommended_items'])} recommendations.")
-
-    return recommendations_items
-
-def Evaluate_RS_ManualMetrics_Dynamic_Topk(ground_truth_real_matrix, recommendations_items, user_id_map, item_id_map):
-    actual_ratings = []
-    indices = []
-
-    total_tp = 0  # Total True Positives
-    total_fp = 0  # Total False Positives
-    total_fn = 0  # Total False Negatives
-
-    for user_id, recommendation in recommendations_items.items():
-        tp = 0  # Reset True Positives for each user
-        fp = 0  # Reset False Positives for each user
-        fn = 0  # Reset False Negatives for each user
-
-        items = recommendation['recommended_items']
-        user_idx = user_id_map[recommendation['User_ID']]
-
-        if len(items) > 0:
-            # Extract actual ratings and indices for the current user
-            user_actual_ratings = ground_truth_real_matrix[user_idx, :]
-            actual_ratings.extend(user_actual_ratings)
-            indices.extend([(user_idx, i) for i in range(len(user_actual_ratings))])
-
-            recommended_items_count = len(items)
-
-            # Calculate True Positives, False Positives, and False Negatives for the current user
-            for i in range(len(user_actual_ratings)):
-                if np.any(user_actual_ratings[i] > 0):
-                    if i in [item_id_map[item['item_id']] for item in items]:
-                        tp += 1
-                    else:
-                        fn += 1
-                elif i in [item_id_map[item['item_id']] for item in items]:
-                    fp += 1
-
-            # Print information for each user, including the total number of rated items
-            # print(f"User ID: {user_id}, True Positives: {tp}, False Positives: {fp}, False Negatives: {fn}")
-
-        total_tp += tp
-        total_fp += fp
-        total_fn += fn
-
-    actual_ratings = np.array(actual_ratings)
-    indices = np.array(indices)
-
-    # Split the indices into training and testing sets
-    train_indices, test_indices, _, _ = train_test_split(indices, actual_ratings, test_size=0.2, random_state=42)
-
-    # Extract corresponding values from the predicted ratings matrix for the test set
-    actual_test = ground_truth_real_matrix[test_indices[:, 0], test_indices[:, 1]]
-
-    # Calculate precision and recall
-    precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
-    recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
-    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-    f2 = (5 * precision * recall) / (4 * precision + recall) if (4 * precision + recall) > 0 else 0
-    
-    # Print the results in a different table format
-    results_table = [
-        ["Total number of indices", len(indices)],
-        ["Number of training indices", len(train_indices)],
-        ["Number of testing indices", len(test_indices)],
-        ["True Positives (tp)", total_tp],
-        ["False Positives (fp) ", total_fp],
-        ["False Negatives (fn)", total_fn],
-        ["Precision", precision],
-        ["Recall", recall],
-        ["F1", f1],
-        ["F2", f2],
-    ]
-
-    print(tabulate(results_table, headers=["Manual Metrics", "Score"], tablefmt="grid"))
-
-    return precision, recall, f1, f2
-
-
-# ---------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
 # Main Function ---------------------------
 # ---------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     
-    # Define the file path and criteria
-    # file_path = '/home/z5318340/MCRS4/MoviesDatasetYahoo.xlsx'
+    # Define the file path and critera
     
+    # katana Server
+    # file_path = '/home/z5318340/MCRS4/MoviesDatasetYahoo.xlsx'
+    # file_path = '/home/z5318340/MCRS4/Movies_Modified_Rating_Scores.xlsx'
+    # file_path = '/home/z5318340/MCRS4/BeerAdvocate.xlsx'
+    # file_path = '/home/z5318340/MCRS4/new_Trip_filtered_dataset.xlsx'
+  
+    # Local Server
+    # file_path = 'C://Yahoo//Global//Movies.xlsx'
+    file_path = 'C://Yahoo//Global//Movies_Modified.xlsx'
+    # file_path = 'C://Yahoo//Global//BeerAdvocate.xlsx'
+    # file_path = 'C://Yahoo//Global//TripAdvisor.xlsx'
     
     # Movies and BeerAdvocate datasets
-    
-    file_path = 'C://Yahoo//Global//Movies.xlsx'
-    # file_path = 'C://Yahoo//Global//Movies_Modified.xlsx'
-    # file_path = 'C://Yahoo//Global//BeerAdvocate.xlsx'
     criteria = ['C1', 'C2', 'C3', 'C4'] 
     
     # TripAdvisor dataset
-    # file_path = 'C://Yahoo//Global//TripAdvisor.xlsx'
     # criteria = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']
 
     # Call the read_data function to get user_id_map and item_id_map
@@ -864,13 +671,16 @@ if __name__ == "__main__":
     # Combine user_ids and item_ids into a single list to build a unique mapping
     combined_ids = np.concatenate((user_ids, item_ids))
 
+    # Convert all elements in combined_ids to strings to ensure uniform type
+    combined_ids_str = combined_ids.astype(str)
+
     # Create a mapping of unique IDs to unique integer values
-    unique_ids = np.unique(combined_ids)
-    id_to_int = {id_: i for i, id_ in enumerate(unique_ids)}
+    unique_ids_str = np.unique(combined_ids_str)
+    id_to_int = {id_: i for i, id_ in enumerate(unique_ids_str)}
 
     # Convert user_ids and item_ids to integers using the mapping
-    user_ids_int = np.array([id_to_int.get(user_id, -1) for user_id in user_ids])
-    item_ids_int = np.array([id_to_int.get(item_id, -1) for item_id in item_ids])
+    user_ids_int = np.array([id_to_int[str(user_id)] for user_id in user_ids])
+    item_ids_int = np.array([id_to_int[str(item_id)] for item_id in item_ids])
 
     # Check for any invalid mappings (IDs not found in the dictionary)
     if -1 in user_ids_int or -1 in item_ids_int:
@@ -920,11 +730,23 @@ if __name__ == "__main__":
     # Call the create_real_ratings function
     data, ground_truth_real_matrix = create_ground_truth_ratings(file_path, criteria)
     # Call the P_Recommendation_item function
-    recommendations_f_items = Recommendation_items_Fixed_TopK(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)
-    recommendations_items = Recommendation_items_Dynamic_TopK(normalized_H_F_embeddings, file_path, criteria, threshold=0.9)
-    
-    mae, rmse = evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map)
-    average_mae, average_rmse = evaluate_crossfold_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map)
-    precision, recall, f1, f2 = Evaluate_RS_ManualMetrics_Dynamic_Topk(ground_truth_real_matrix, recommendations_items, user_id_map, item_id_map)
+    recommendations_f_items = Recommendation_items_Fixed_TopK(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)    
 
-    
+
+    # Modify these values according to your requirements
+    nc = 4
+    train = 0.6
+    test = 0.4
+
+    # Assuming you have already defined other necessary variables such as ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, and the function evaluate_recommendations_Prediction_Fixed_TopK
+
+    criteria = ['C%d' % (i,) for i in range(1, int(nc)+1)]
+        
+    print(train)
+    print(test)
+    print(criteria)
+
+    # Now, you can call your function with the provided train and test sizes
+    evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train, test)
+
+   #-----------------------------------------    
