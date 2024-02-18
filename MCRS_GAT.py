@@ -535,10 +535,6 @@ def normalize_hadamard_embeddings(fused_embeddings):
     return normalized_embeddings
 #----------------------------------------
 
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-
 def Recommendation_items_Fixed_TopK(normalized_embeddings, file_path, criteria, threshold_A=0.9, top_k=1):
     data, _ = create_ground_truth_ratings(file_path, criteria)
     recommendations_f_items = {}
