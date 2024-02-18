@@ -30,9 +30,6 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
 
-
-
-
 def read_data(file_path, criteria):
     data = pd.read_excel(file_path)
     user_id = data['User_ID']
@@ -619,30 +616,41 @@ def evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, rec
 # --------------------------------------------------------------------------------------
 # Main Function ---------------------------
 # ---------------------------------------------------------------------------------------
+from MCRS_GAT import evaluate_recommendations_Prediction_Fixed_TopK, read_data, create_bipartite_graph, create_subgraphs, create_and_normalize_adjacency_matrices, L_BGNN, resize_matrices, GAT, create_ground_truth_ratings, Recommendation_items_Fixed_TopK, normalize_hadamard_embeddings
 
 if __name__ == "__main__":
     
-    # Define the file path and critera
+    # Define your file paths for different datasets in Katana Server
+    # file_paths = {
+    #     'Movies': '/home/z5318340/MCRS4/Movies_Modified_Rating_Scores.xlsx',
+    #     'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
+    #     'TripAdvisor': '/home/z5318340/MCRS4/new_Trip_filtered_dataset.xlsx'
+    # }
     
-    # katana Server
-    # file_path = '/home/z5318340/MCRS4/MoviesDatasetYahoo.xlsx'
-    # file_path = '/home/z5318340/MCRS4/Movies_Modified_Rating_Scores.xlsx'
-    # file_path = '/home/z5318340/MCRS4/BeerAdvocate.xlsx'
-    # file_path = '/home/z5318340/MCRS4/new_Trip_filtered_dataset.xlsx'
-  
-    # Local Server
-    # file_path = 'C://Yahoo//Global//Movies.xlsx'
-    file_path = 'C://Yahoo//Global//Movies_Modified.xlsx'
-    # file_path = 'C://Yahoo//Global//BeerAdvocate.xlsx'
-    # file_path = 'C://Yahoo//Global//TripAdvisor.xlsx'
+    # Define your file paths for different datasets in local Server
+    file_paths = {
+        'Movies': 'C://Yahoo//Global//Movies_Modified.xlsx',
+        'BeerAdvocate': 'C://Yahoo//Global//BeerAdvocate.xlsx',
+        'TripAdvisor': 'C://Yahoo//Global//TripAdvisor.xlsx'
+    }
     
-    # Movies and BeerAdvocate datasets
-    criteria = ['C1', 'C2', 'C3', 'C4'] 
-    
-    # TripAdvisor dataset
-    # criteria = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']
+    # Define criteria for different datasets
+    criteria_mapping = {
+        'Movies': ['C1', 'C2', 'C3', 'C4'],
+        'BeerAdvocate': ['C1', 'C2', 'C3', 'C4'],
+        'TripAdvisor': ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']
+    }
 
-    # Call the read_data function to get user_id_map and item_id_map
+    # Define the dataset to run (choose one)
+    dataset_to_run = 'BeerAdvocate'  # Change the name of dataset files
+    
+    # Define train and test sizes
+    train_size = 0.6
+    test_size = 0.4
+    
+    # Read data for the selected dataset
+    file_path = file_paths[dataset_to_run]
+    criteria = criteria_mapping[dataset_to_run]
     user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
 
     # Call other functions
@@ -659,11 +667,6 @@ if __name__ == "__main__":
     matrices, user_id_to_index, user_index_to_id = L_BGNN(file_path, criteria, user_ids, item_ids)
     resized_matrices = resize_matrices(matrices)
     
-    # Movies and BeerAdvocate datasets
-    matrix1, matrix2, matrix3, matrix4 = matrices
-    # TripAdvisor dataset
-    # matrix1, matrix2, matrix3, matrix4, matrix5, matrix6, matrix7 = matrices
-                      
     # Combine user_ids and item_ids into a single list to build a unique mapping
     combined_ids = np.concatenate((user_ids, item_ids))
 
@@ -686,7 +689,6 @@ if __name__ == "__main__":
     user_ids_tensor = torch.tensor(user_ids_int).clone().detach()
     item_ids_tensor = torch.tensor(item_ids_int).clone().detach()
 
-    
     #---Attention Embedding------
     # GAT and Fusion Embeddings
     model = GAT(in_channels=16, out_channels=256)
@@ -728,21 +730,6 @@ if __name__ == "__main__":
     # Call the P_Recommendation_item function
     recommendations_f_items = Recommendation_items_Fixed_TopK(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)    
 
-
-    # Modify these values according to your requirements
-    nc = 4
-    train = 0.6
-    test = 0.4
-
-    # Assuming you have already defined other necessary variables such as ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, and the function evaluate_recommendations_Prediction_Fixed_TopK
-
-    criteria = ['C%d' % (i,) for i in range(1, int(nc)+1)]
-        
-    print(train)
-    print(test)
-    print(criteria)
-
     # Now, you can call your function with the provided train and test sizes
-    evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train, test)
+    evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train_size, test_size)
 
-   #-----------------------------------------    
