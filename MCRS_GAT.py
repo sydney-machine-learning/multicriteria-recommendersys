@@ -1,3 +1,5 @@
+
+
 import os
 import sys
 import networkx as nx
@@ -566,6 +568,7 @@ def Recommendation_items_Fixed_TopK(normalized_embeddings, file_path, criteria, 
     return recommendations_f_items
 
 def evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train_size, test_size):
+    # Convert recommendations into a matrix of predicted ratings
     predicted_ratings = np.zeros_like(ground_truth_real_matrix, dtype=np.float32)
     actual_ratings = []
     indices = []
@@ -587,9 +590,11 @@ def evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, rec
 
     # Convert indices to numpy array
     indices = np.array(indices)
+    # Shuffle the indices array
+    np.random.shuffle(indices)
     
     # Split indices into training and testing sets based on given train and test sizes
-    train_indices, test_indices = train_test_split(indices, train_size=train_size, test_size=test_size)
+    train_indices, test_indices = train_test_split(indices, train_size=train_size, test_size=test_size, random_state=42)
 
     # Extract corresponding values from the ground_truth_real_matrix for training and testing sets
     actual_train = ground_truth_real_matrix[train_indices[:, 0], train_indices[:, 1]]
@@ -598,20 +603,24 @@ def evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, rec
     predicted_test = predicted_ratings[test_indices[:, 0], test_indices[:, 1]]
 
     # Print sections from ground_truth_real_matrix
-    print("Training Section:")
-    print(ground_truth_real_matrix[train_indices[:, 0], :])
-    print("\nTesting Section:")
-    print(ground_truth_real_matrix[test_indices[:, 0], :])
+    # print("Training Section:")
+    # print(ground_truth_real_matrix[train_indices[:, 0], :])
+    # print("\nTesting Section:")
+    # print(ground_truth_real_matrix[test_indices[:, 0], :])
 
-    # Calculate evaluation metrics
-    mae = mean_absolute_error(actual_test, predicted_test)
-    rmse = np.sqrt(mean_squared_error(actual_test, predicted_test))
+    # Calculate evaluation metrics for training set
+    mae_train = mean_absolute_error(actual_train, predicted_train)
+    rmse_train = np.sqrt(mean_squared_error(actual_train, predicted_train))
     
-    # Print evaluation metrics for the testing set
-    print(f"\nMAE based on Fixed Test Size: {mae}")
-    print(f"RMSE based on Fixed Test Size: {rmse}")
+    # Calculate evaluation metrics for testing set
+    mae_test = mean_absolute_error(actual_test, predicted_test)
+    rmse_test = np.sqrt(mean_squared_error(actual_test, predicted_test))
     
-    return mae, rmse
+    # Print evaluation metrics for both training and testing sets
+    print(f"\nTraining MAE: {mae_train}, RMSE: {rmse_train}")
+    print(f"Testing MAE: {mae_test}, RMSE: {rmse_test}")
+    
+    return mae_train, rmse_train, mae_test, rmse_test
 
 # --------------------------------------------------------------------------------------
 # Main Function ---------------------------
@@ -642,7 +651,7 @@ if __name__ == "__main__":
     }
 
     # Define the dataset to run (choose one)
-    dataset_to_run = 'BeerAdvocate'  # Change the name of dataset files
+    dataset_to_run = 'Movies'  # Change the name of dataset files
     
     # Define train and test sizes
     train_size = 0.6
@@ -731,5 +740,4 @@ if __name__ == "__main__":
     recommendations_f_items = Recommendation_items_Fixed_TopK(normalized_H_F_embeddings, file_path, criteria, threshold_A=0.9, top_k=1)    
 
     # Now, you can call your function with the provided train and test sizes
-    evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train_size, test_size)
-
+    mae_train, rmse_train, mae_test, rmse_test = evaluate_recommendations_Prediction_Fixed_TopK(ground_truth_real_matrix, recommendations_f_items, user_id_map, item_id_map, train_size, test_size)
