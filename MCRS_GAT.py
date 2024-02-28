@@ -647,17 +647,17 @@ def evaluate_recommendation_model(fused_embeddings, file_path, criteria, thresho
 if __name__ == "__main__":
     
     # Define your file paths for different datasets in Katana Server
-    file_paths = {
-        'Movies_Original': '/home/z5318340/MCRS4/MoviesDatasetYahoo.xlsx',
-        'Movies_Modified': '/home/z5318340/MCRS4/Movies_Modified_Rating_Scores.xlsx',
-        'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
-        'TripAdvisor': '/home/z5318340/MCRS4/new_Trip_filtered_dataset.xlsx'
-    }
+    # file_paths = {
+    #     'Movies_Original': '/home/z5318340/MCRS4/MoviesDatasetYahoo.xlsx',
+    #     'Movies_Modified': '/home/z5318340/MCRS4/Movies_Modified_Rating_Scores.xlsx',
+    #     'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
+    #     'TripAdvisor': '/home/z5318340/MCRS4/new_Trip_filtered_dataset.xlsx'
+    # }
     
     # Define your file paths for different datasets in local Server
     file_paths = {
         'Movies_Original': 'C://Yahoo//Global//Movies.xlsx',
-        # 'Movies_Modified': 'C://Yahoo//Global//Movies_Modified.xlsx',
+        'Movies_Modified': 'C://Yahoo//Global//Movies_Modified.xlsx',
         'BeerAdvocate': 'C://Yahoo//Global//Modified_BeerAdvocate.xlsx',
         'TripAdvisor': 'C://Yahoo//Global//TripAdvisor.xlsx'
     }
@@ -671,7 +671,7 @@ if __name__ == "__main__":
     }
 
     # Define the dataset to run
-    dataset_to_run = 'BeerAdvocate'
+    dataset_to_run = 'Movies_Modified'
 
     # Read data for the selected dataset
     file_path = file_paths[dataset_to_run]
