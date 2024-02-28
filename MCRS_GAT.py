@@ -1,6 +1,5 @@
 import os
 import sys
-import networkx as nx
 import torch_geometric
 import numpy as np
 import torch.nn as nn
@@ -34,10 +33,13 @@ def read_data(file_path, criteria):
     data = pd.read_excel(file_path)
     user_id = data['User_ID']
     item_id = data['Items_ID']
+
+    # In the following, users are coded 0..(num_users-1) and items num_users..(num_users+num_items-1)
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
-    item_id_map = {mid: i for i, mid in enumerate(item_id.unique())}
     num_users = len(user_id_map)
+    item_id_map = {mid: i + num_users for i, mid in enumerate(item_id.unique())}
     num_items = len(item_id_map)
+
     num_criteria = len(criteria)
     base_ground_truth_ratings = np.zeros((num_users, num_items, num_criteria), dtype=np.int32)
 
@@ -47,194 +49,27 @@ def read_data(file_path, criteria):
         criterion_ratings = [row[criterion] for criterion in criteria]
         if uid in user_id_map and mid in item_id_map:
             user_idx = user_id_map[uid]
-            item_idx = item_id_map[mid]
+            item_idx = item_id_map[mid] - num_users
             base_ground_truth_ratings[user_idx, item_idx] = criterion_ratings
 
     return user_id_map, item_id_map, base_ground_truth_ratings
 
-def create_bipartite_graph(file_path, criteria):
-    data = pd.read_excel(file_path)
-    G = nx.MultiGraph()
-
-    users = set()
-    items = set()
-
-    for uid in data['User_ID']:
-        G.add_node(uid, bipartite=0)
-        users.add(uid)
-
-    for mid in data['Items_ID']:
-        G.add_node(mid, bipartite=1)
-        items.add(mid)
-
-    for i in range(len(data)):
-        uid = data['User_ID'][i]
-        mid = data['Items_ID'][i]
-
-        for criterion in criteria:
-            rating = data[criterion][i]
-
-            if rating > 0:
-                G.add_edge(uid, mid, criterion=criterion, weight=rating)
-
-    print(f"Number of user nodes: {len(users)}")
-    print(f"Number of item nodes: {len(items)}")
-
-    user_item_edges = [(u, v, data) for u, v, data in G.edges(data=True) if u in users and v in items]
-    print(f"Number of edges between user and item nodes: {len(user_item_edges)}")
-
-    for u, v, data in G.edges(data=True):
-        if u in users and v in items and 'criterion' in data and 'weight' in data:
-            user_id = u
-            item_id = v
-            criterion = data['criterion']
-            rating = data['weight']  # Use the correct attribute name
-
-            # print(f"Edge between User_ID {user_id} and Items_ID {item_id} (Criterion: {criterion}):")
-            # print(f"  Weight (Rating): {rating}")
-
-    return G
-
-def create_subgraphs(file_path, criteria):
-    graph_data = pd.read_excel(file_path)
-    subgraphs = []
-
-    for criterion in criteria:
-        subgraph = nx.Graph()
-        subgraphs.append(subgraph)
-
-    for i in range(len(graph_data)):
-        uid = graph_data['User_ID'][i]
-        mid = graph_data['Items_ID'][i]
-
-        for criterion, subgraph in zip(criteria, subgraphs):
-            rating = graph_data[criterion][i]
-
-            if rating > 0:
-                subgraph.add_node(uid, bipartite=0)
-                subgraph.add_node(mid, bipartite=1)
-                subgraph.add_edge(uid, mid, weight=rating)
-
-    for criterion, subgraph in zip(criteria, subgraphs):
-        # print(f"\nSubgraph for Criterion {criterion}:")
-        is_bipartite = nx.is_bipartite(subgraph)
-        # print(f"Is bipartite: {is_bipartite}")
-
-        user_nodes = [node for node in subgraph.nodes() if subgraph.nodes[node]['bipartite'] == 0]
-        item_nodes = [node for node in subgraph.nodes() if subgraph.nodes[node]['bipartite'] == 1]
-        # print(f"Number of user nodes: {len(user_nodes)}")
-        # print(f"Number of item nodes: {len(item_nodes)}")
-
-        subgraph_edges = [(u, v, data) for u, v, data in subgraph.edges(data=True)]
-        # print(f"Number of edges in subgraph: {len(subgraph_edges)}")
-
-def create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, item_ids):
-    graph_data = pd.read_excel(file_path)
-    bgnn_matrices = []  # Initialize a list to store the BGNN matrices for each criterion
-
-    user_id_to_index = {}
-    user_index_to_id = {}
-    item_id_to_index = {}
-    item_index_to_id = {}
-
-    for criterion in criteria:
-        subgraph = nx.Graph()
-
-        for i in range(len(graph_data)):
-            uid = graph_data['User_ID'][i]
-            mid = graph_data['Items_ID'][i]
-
-            rating = graph_data[criterion][i]
-
-            if rating > 0:
-                subgraph.add_node(uid, bipartite=0)
-                subgraph.add_node(mid, bipartite=1)
-                subgraph.add_edge(uid, mid, weight=rating)
-
-        n_nodes = len(subgraph.nodes())
-        adj_matrix = np.zeros((n_nodes, n_nodes), dtype=np.int32)
-
-        for uid, mid, data in subgraph.edges(data=True):
-            uid_idx = list(subgraph.nodes()).index(uid)
-            mid_idx = list(subgraph.nodes()).index(mid)
-            adj_matrix[uid_idx][mid_idx] = data['weight']
-            adj_matrix[mid_idx][uid_idx] = data['weight']
-
-        # # Print the matrix
-        # print(f"\nMatrix for criterion '{criterion}':")
-        # print(adj_matrix)
-
-        # # Count zero and non-zero cells in the matrix and print the results
-        # zero_cells = np.sum(adj_matrix == 0)
-        # non_zero_cells = np.sum(adj_matrix != 0)
-        # print(f"\nMatrix for criterion '{criterion}' has {zero_cells} zero cells and {non_zero_cells} non-zero cells.")
-
-        # Calculate the degree matrices DC_uv and DC_vu as before
-        DC_uv = np.diag(np.sum(adj_matrix, axis=1))
-        DC_vu = np.diag(np.sum(adj_matrix, axis=0))
-
-        # Normalize the matrix using the degree matrices
-        BC_uv_norm = np.linalg.pinv(DC_uv) @ adj_matrix
-        BC_vu_norm = adj_matrix @ np.linalg.pinv(DC_vu)
-
-        # Average the two normalized matrices to get a single normalized matrix
-        normalized_matrix = (BC_uv_norm + BC_vu_norm) / 2.0
-
-        # Convert the normalized matrix to the format of BGNN (Block Graph Neural Network)
-        n = normalized_matrix.shape[0] // 2  # Assuming the matrix is of the form (0 Bu; Bv 0)
-        Bu = normalized_matrix[:n, n:]
-        Bv = normalized_matrix[n:, :n]
-
-        # Ensure Bu and Bv have the same dimensions along axis 1
-        min_cols = min(Bu.shape[1], Bv.shape[1])
-        Bu = Bu[:, :min_cols]
-        Bv = Bv[:, :min_cols]
-
-        bgnn_matrix = np.block([[np.zeros_like(Bu), Bu], [Bv, np.zeros_like(Bv)]])
-        bgnn_matrices.append(bgnn_matrix)
-
-    # Create mappings from IDs to indices and vice versa for users and items
-    for idx, user_id in enumerate(user_ids):
-        user_id_to_index[user_id] = idx
-        user_index_to_id[idx] = user_id
-
-    for idx, item_id in enumerate(item_ids):
-        item_id_to_index[item_id] = idx
-        item_index_to_id[idx] = item_id
-
-    return bgnn_matrices, user_id_to_index, user_index_to_id, item_id_to_index, item_index_to_id
-
-def L_BGNN(file_path, criteria, user_ids, item_ids):
+def L_BGNN(file_path, criteria, user_id_map, item_id_map):
     graph_data = pd.read_excel(file_path)
     matrices = []  # Initialize a list to store the normalized matrices for each criterion
-
-    user_id_to_index = {}
-    user_index_to_id = {}
-    item_id_to_index = {}
-    item_index_to_id = {}
+    n_nodes = len(user_id_map) + len(item_id_map)
 
     for criterion in criteria:
-        subgraph = nx.Graph()
-
-        for i in range(len(graph_data)):
-            uid = graph_data['User_ID'][i]
-            mid = graph_data['Items_ID'][i]
-
-            rating = graph_data[criterion][i]
-
-            if rating > 0:
-                subgraph.add_node(uid, bipartite=0)
-                subgraph.add_node(mid, bipartite=1)
-                subgraph.add_edge(uid, mid, weight=rating)
-
-        n_nodes = len(subgraph.nodes())
+        # TODO: Check if this should be a sparse matrix.
         adj_matrix = np.zeros((n_nodes, n_nodes), dtype=np.int32)
 
-        for uid, mid, data in subgraph.edges(data=True):
-            uid_idx = list(subgraph.nodes()).index(uid)
-            mid_idx = list(subgraph.nodes()).index(mid)
-            adj_matrix[uid_idx][mid_idx] = data['weight']
-            adj_matrix[mid_idx][uid_idx] = data['weight']
+        for i in range(len(graph_data)):
+            uid = user_id_map[graph_data['User_ID'][i]]
+            mid = item_id_map[graph_data['Items_ID'][i]]
+            rating = graph_data[criterion][i]
+
+            adj_matrix[uid][mid] = rating
+            adj_matrix[mid][uid] = rating
 
         # Calculate the degree matrices DC_uv and DC_vu as before
         DC_uv = np.diag(np.sum(adj_matrix, axis=1))
@@ -253,52 +88,7 @@ def L_BGNN(file_path, criteria, user_ids, item_ids):
         # print(f"\nNormalized Matrix for criterion '{criterion}':")
         # print(normalized_matrix)
 
-    # Create mappings from IDs to indices and vice versa for users and items
-    for idx, user_id in enumerate(user_ids):
-        user_id_to_index[user_id] = idx
-        user_index_to_id[idx] = user_id
-
-    for idx, item_id in enumerate(item_ids):
-        item_id_to_index[item_id] = idx
-        item_index_to_id[idx] = item_id
-
-    return tuple(matrices), user_id_to_index, user_index_to_id, 
-
-def resize_matrices(matrices):
-    # Find the maximum size among all matrices
-    max_size = max(matrix.shape[0] for matrix in matrices)
-
-    # Initialize a list to store resized matrices
-    resized_matrices = []
-
-    # Resize each matrix to the maximum size
-    for matrix in matrices:
-        if matrix.shape[0] < max_size:
-            # Pad the matrix with zeros if it's smaller than the maximum size
-            padded_matrix = np.pad(matrix, ((0, max_size - matrix.shape[0]), (0, max_size - matrix.shape[1])), mode='constant')
-            resized_matrices.append(padded_matrix)
-        elif matrix.shape[0] > max_size:
-            # Truncate the matrix if it's larger than the maximum size
-            truncated_matrix = matrix[:max_size, :max_size]
-            resized_matrices.append(truncated_matrix)
-        else:
-            # If the matrix is already of the maximum size, no need to resize
-            resized_matrices.append(matrix)
-
-    # # Print the resized matrices and their shapes
-    # for i, matrix in enumerate(resized_matrices):
-    #     print(f"\nResized Matrix {i + 1}:")
-    #     print(matrix)
-    #     print(f"Shape: {matrix.shape}")
-
-    #     # Count the number of zero and non-zero elements
-    #     num_zeros = np.count_nonzero(matrix == 0)
-    #     num_non_zeros = np.count_nonzero(matrix != 0)
-
-    #     print(f"Number of zeros: {num_zeros}")
-    #     print(f"Number of non-zeros: {num_non_zeros}")
-
-    return resized_matrices
+    return tuple(matrices)
 
 # ------------------------ Define the GAT model
 class GAT(nn.Module):
@@ -352,11 +142,10 @@ class GAT(nn.Module):
 
         return x
 
-    def Multi_Embd(self, matrices, user_ids, item_ids, num_epochs=100, learning_rate=0.01):
-        resized_matrices = resize_matrices(matrices)  # Use resize_matrices function here
+    def Multi_Embd(self, matrices, num_epochs=100, learning_rate=0.01):
         dataset_list = []
 
-        for normalized_matrix in resized_matrices:
+        for normalized_matrix in matrices:
             edges = torch.tensor(np.array(np.where(normalized_matrix)).T, dtype=torch.long).t().contiguous().clone().detach()
             edge_attr = torch.tensor(normalized_matrix[edges[0], edges[1]], dtype=torch.float).clone().detach()
             x = torch.randn(normalized_matrix.shape[0], 16)  # Assuming in_channels=16 for the GAT model
@@ -379,11 +168,11 @@ class GAT(nn.Module):
 
             embeddings_list.append(embeddings)
 
-        fused_embeddings = self.fusion_embeddings_vectors(embeddings_list, user_ids, item_ids)
+        fused_embeddings = self.fusion_embeddings_vectors(embeddings_list)
 
         return fused_embeddings
     
-    def fusion_embeddings_vectors(self, embeddings_list, user_ids, item_ids):
+    def fusion_embeddings_vectors(self, embeddings_list):
         max_size = max([embedding.size(0) for embedding in embeddings_list])
         
         # Pad embeddings to the maximum size
@@ -677,46 +466,16 @@ if __name__ == "__main__":
     file_path = file_paths[dataset_to_run]
     criteria = criteria_mapping[dataset_to_run]
     user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
+    num_users = len(user_id_map)
+    num_items = len(item_id_map)
+    num_criteria = len(criteria)
 
-    # Call other functions
-    create_bipartite_graph(file_path, criteria)
-    create_subgraphs(file_path, criteria)
-
-    # Read data from the Excel file and create ID mappings
-    user_ids = list(user_id_map.keys())
-    item_ids = list(item_id_map.keys())
-
-    # Call the function to create and normalize adjacency matrices
-    result = create_and_normalize_adjacency_matrices(file_path, criteria, user_ids, item_ids)
-    
-    matrices, user_id_to_index, user_index_to_id = L_BGNN(file_path, criteria, user_ids, item_ids)
-    resized_matrices = resize_matrices(matrices)
-    
-    # Combine user_ids and item_ids into a single list to build a unique mapping
-    combined_ids = np.concatenate((user_ids, item_ids))
-
-    # Convert all elements in combined_ids to strings to ensure uniform type
-    combined_ids_str = combined_ids.astype(str)
-
-    # Create a mapping of unique IDs to unique integer values
-    unique_ids_str = np.unique(combined_ids_str)
-    id_to_int = {id_: i for i, id_ in enumerate(unique_ids_str)}
-
-    # Convert user_ids and item_ids to integers using the mapping
-    user_ids_int = np.array([id_to_int[str(user_id)] for user_id in user_ids])
-    item_ids_int = np.array([id_to_int[str(item_id)] for item_id in item_ids])
-
-    # Check for any invalid mappings (IDs not found in the dictionary)
-    if -1 in user_ids_int or -1 in item_ids_int:
-        print("Invalid ID found in user_ids or item_ids.")
-        
-    # Convert user_ids_int and item_ids_int to PyTorch tensors
-    user_ids_tensor = torch.tensor(user_ids_int).clone().detach()
-    item_ids_tensor = torch.tensor(item_ids_int).clone().detach()
+    # Read data from the Excel file and create ID mappings  
+    matrices = L_BGNN(file_path, criteria, user_id_map, item_id_map)
 
     #---Attention Embedding------
     model = GAT(in_channels=16, out_channels=256)
-    result = model.Multi_Embd(resized_matrices, user_ids_tensor, item_ids_tensor, num_epochs=100, learning_rate=0.01)
+    result = model.Multi_Embd(matrices, num_epochs=100, learning_rate=0.01)
     fused_embeddings_with_ids = result  # unpack the values you need
     print("Fused Embeddings:")
     print(fused_embeddings_with_ids)
@@ -732,9 +491,6 @@ if __name__ == "__main__":
 
     # Reshape fused_embeddings_tensor to match the expected shape
     num_samples, num_features = fused_embeddings_tensor.shape
-    num_users = len(user_ids)
-    num_criteria = len(criteria)
-    num_items = len(item_ids)
 
     # Calculate the total number of features per criterion
     num_features_per_criterion = num_features // num_criteria
