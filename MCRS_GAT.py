@@ -304,69 +304,6 @@ def create_ground_truth_ratings(file_path, criteria):
         
     return data, ground_truth_ratings_matrix, user_id_map, item_id_map
 
-# def Recommendation_items_Top_k(fused_embeddings, user_id_map, data, criteria, threshold_func=None, top_k=10):
-#     recommendations_f_items = {}
-
-#     # Convert fused embeddings to numpy array
-#     fused_embeddings_np = fused_embeddings.cpu().detach().numpy()
-
-#     # Compute similarities between embeddings
-#     similarities = cosine_similarity(fused_embeddings_np)
-
-#     # Iterate over all users
-#     for user_idx, user_id in enumerate(user_id_map.keys()):
-#         # Determine threshold value using threshold_func
-#         if threshold_func is not None:
-#             threshold_A = threshold_func(fused_embeddings[user_idx]).item()
-#         else:
-#             raise ValueError("A threshold function (threshold_func) must be provided.")
-
-#         # Find similar users based on cosine similarity and dynamic threshold
-#         similar_users_idx = np.where(similarities[user_idx] >= threshold_A)[0]
-
-#         # Check if there are similar users for the current user
-#         if len(similar_users_idx) > 0:
-#             # Sort similar users by similarity score and select top_k users
-#             similar_users_sorted_idx = similar_users_idx[np.argsort(similarities[user_idx][similar_users_idx])[::-1][:top_k]]
-
-#             # Initialize recommended items list for the current user
-#             recommended_items = []
-
-#             # Retrieve the current user's rating from the data
-#             user_data = data[data['User_ID'] == user_id]
-#             if len(user_data) > 0:  # Check if there are ratings for this user
-#                 current_user_rating = user_data['Overall_Rating'].values[0]
-
-#                 # Get recommended items for the user
-#                 for user_idx_2 in similar_users_sorted_idx:
-#                     if user_idx_2 >= len(user_id_map.keys()):
-#                         continue  # Skip if index is out of range
-#                     user_id_2 = list(user_id_map.keys())[user_idx_2]
-#                     for _, row in data[data['User_ID'] == user_id_2].iterrows():
-#                         item_id = row['Items_ID']
-#                         overall_rating = row['Overall_Rating']
-
-#                         # Check if overall rating is similar to the current user's rating
-#                         if abs(overall_rating - current_user_rating) <= threshold_A:
-#                             recommended_items.append({'item_id': item_id, 'Overall_Rating': overall_rating})
-
-#                 # Filter out items already rated by the current user
-#                 recommended_items = [item for item in recommended_items if
-#                                      item['item_id'] not in user_data['Items_ID'].values]
-
-#                 # Sort recommended items by overall rating
-#                 recommended_items = sorted(recommended_items, key=lambda x: x['Overall_Rating'], reverse=True)[:top_k]
-
-#                 # Add recommended items for the current user to the dictionary
-#                 recommendations_f_items[user_id] = recommended_items
-#             else:
-#                 recommendations_f_items[user_id] = None
-#         else:
-#             # No similar users found, pass the user's embedding
-#             recommendations_f_items[user_id] = None
-
-#     return recommendations_f_items
-
 def Recommendation_items_Fixed_TopK(fused_embeddings, file_path, criteria, threshold_A=0.5, top_k=10):
     data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(file_path, criteria)
     recommendations_f_items = {}
