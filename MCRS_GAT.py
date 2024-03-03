@@ -1,3 +1,6 @@
+
+
+
 import os
 import sys
 import torch_geometric
@@ -28,13 +31,20 @@ from tabulate import tabulate
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import Ridge
+from sklearn.svm import SVR
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.linear_model import Lasso
+
 
 def read_data(file_path, criteria):
+    
     data = pd.read_excel(file_path)
     user_id = data['User_ID']
     item_id = data['Items_ID']
 
-    # In the following, users are coded 0..(num_users-1) and items num_users..(num_users+num_items-1)
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
     num_users = len(user_id_map)
     item_id_map = {mid: i + num_users for i, mid in enumerate(item_id.unique())}
@@ -142,6 +152,17 @@ class GAT(nn.Module):
 
         return x
 
+    def fusion_embeddings_vectors(self, embeddings_list):  # Add self parameter
+        max_size = max([embedding.size(0) for embedding in embeddings_list])
+        
+        # Pad embeddings to the maximum size
+        padded_embeddings = [F.pad(embedding, (0, 0, 0, max_size - embedding.size(0))) for embedding in embeddings_list]
+        
+        # Concatenate the padded embeddings along the second dimension (axis 1)
+        fused_embeddings = torch.cat(padded_embeddings, dim=1)
+        
+        return fused_embeddings
+
     def Multi_Embd(self, matrices, num_epochs=100, learning_rate=0.01):
         dataset_list = []
 
@@ -169,17 +190,10 @@ class GAT(nn.Module):
             embeddings_list.append(embeddings)
 
         fused_embeddings = self.fusion_embeddings_vectors(embeddings_list)
-
-        return fused_embeddings
-    
-    def fusion_embeddings_vectors(self, embeddings_list):
-        max_size = max([embedding.size(0) for embedding in embeddings_list])
         
-        # Pad embeddings to the maximum size
-        padded_embeddings = [F.pad(embedding, (0, 0, 0, max_size - embedding.size(0))) for embedding in embeddings_list]
-        
-        # Concatenate the padded embeddings along the second dimension (axis 1)
-        fused_embeddings = torch.cat(padded_embeddings, dim=1)
+        # Print fused embeddings
+        print("Fused Embeddings:")
+        print(fused_embeddings)
         
         return fused_embeddings
            
@@ -251,10 +265,24 @@ class GAT(nn.Module):
 
         return total_loss
     
+def check_embeddings_consistency(fused_embeddings):
+    # Check for zero rows
+    zero_rows = torch.sum(torch.abs(fused_embeddings), dim=1) == 0
+    if torch.any(zero_rows):
+        print("Warning: There are zero rows in fused_embeddings.")
+    
+    # Check for non-zero entries
+    non_zero_entries = torch.sum(torch.abs(fused_embeddings), dim=0) > 0
+    if not torch.all(non_zero_entries):
+        print("Warning: There are rows with no non-zero entries in fused_embeddings.")
+    
+    # Return True if embeddings are consistent, False otherwise
+    return not torch.any(zero_rows) and torch.all(non_zero_entries)
+
 # -------------Recommendation Section -------------------------
 
 def create_ground_truth_ratings(file_path, criteria):  
-    data = pd.read_excel(file_path)
+    # data = pd.read_excel(file_path)
 
     # Create a mapping from user/item IDs to unique integer indices
     user_id_map = {uid: i for i, uid in enumerate(data['User_ID'].unique())}
@@ -276,157 +304,193 @@ def create_ground_truth_ratings(file_path, criteria):
         
     return data, ground_truth_ratings_matrix, user_id_map, item_id_map
 
-def Recommendation_items_Top_k(fused_embeddings, file_path, criteria, threshold_func=None, threshold=None, top_k=10):
+# def Recommendation_items_Top_k(fused_embeddings, user_id_map, data, criteria, threshold_func=None, top_k=10):
+#     recommendations_f_items = {}
+
+#     # Convert fused embeddings to numpy array
+#     fused_embeddings_np = fused_embeddings.cpu().detach().numpy()
+
+#     # Compute similarities between embeddings
+#     similarities = cosine_similarity(fused_embeddings_np)
+
+#     # Iterate over all users
+#     for user_idx, user_id in enumerate(user_id_map.keys()):
+#         # Determine threshold value using threshold_func
+#         if threshold_func is not None:
+#             threshold_A = threshold_func(fused_embeddings[user_idx]).item()
+#         else:
+#             raise ValueError("A threshold function (threshold_func) must be provided.")
+
+#         # Find similar users based on cosine similarity and dynamic threshold
+#         similar_users_idx = np.where(similarities[user_idx] >= threshold_A)[0]
+
+#         # Check if there are similar users for the current user
+#         if len(similar_users_idx) > 0:
+#             # Sort similar users by similarity score and select top_k users
+#             similar_users_sorted_idx = similar_users_idx[np.argsort(similarities[user_idx][similar_users_idx])[::-1][:top_k]]
+
+#             # Initialize recommended items list for the current user
+#             recommended_items = []
+
+#             # Retrieve the current user's rating from the data
+#             user_data = data[data['User_ID'] == user_id]
+#             if len(user_data) > 0:  # Check if there are ratings for this user
+#                 current_user_rating = user_data['Overall_Rating'].values[0]
+
+#                 # Get recommended items for the user
+#                 for user_idx_2 in similar_users_sorted_idx:
+#                     if user_idx_2 >= len(user_id_map.keys()):
+#                         continue  # Skip if index is out of range
+#                     user_id_2 = list(user_id_map.keys())[user_idx_2]
+#                     for _, row in data[data['User_ID'] == user_id_2].iterrows():
+#                         item_id = row['Items_ID']
+#                         overall_rating = row['Overall_Rating']
+
+#                         # Check if overall rating is similar to the current user's rating
+#                         if abs(overall_rating - current_user_rating) <= threshold_A:
+#                             recommended_items.append({'item_id': item_id, 'Overall_Rating': overall_rating})
+
+#                 # Filter out items already rated by the current user
+#                 recommended_items = [item for item in recommended_items if
+#                                      item['item_id'] not in user_data['Items_ID'].values]
+
+#                 # Sort recommended items by overall rating
+#                 recommended_items = sorted(recommended_items, key=lambda x: x['Overall_Rating'], reverse=True)[:top_k]
+
+#                 # Add recommended items for the current user to the dictionary
+#                 recommendations_f_items[user_id] = recommended_items
+#             else:
+#                 recommendations_f_items[user_id] = None
+#         else:
+#             # No similar users found, pass the user's embedding
+#             recommendations_f_items[user_id] = None
+
+#     return recommendations_f_items
+
+def Recommendation_items_Fixed_TopK(fused_embeddings, file_path, criteria, threshold_A=0.5, top_k=10):
     data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(file_path, criteria)
     recommendations_f_items = {}
 
-    # Convert fused_embeddings Tensor to dictionary
-    fused_embeddings_dict = {user_id: embedding for user_id, embedding in zip(user_id_map.keys(), fused_embeddings)}
-
-    # Compute similarities between embeddings
-    similarities = {}
-    for user_id_1, embedding_1 in fused_embeddings_dict.items():
-        similarities[user_id_1] = {}
-        for user_id_2, embedding_2 in fused_embeddings_dict.items():
-            # Reshape embeddings to 2D arrays
-            embedding_1_2d = embedding_1.reshape(1, -1)
-            embedding_2_2d = embedding_2.reshape(1, -1)
-            similarity_score = cosine_similarity(embedding_1_2d, embedding_2_2d)[0][0]
-            similarities[user_id_1][user_id_2] = similarity_score
+    num_users_actual, _ = fused_embeddings.shape
+    fused_embeddings_2d = fused_embeddings.reshape((num_users_actual, -1))
+    similarities = cosine_similarity(fused_embeddings_2d)
 
     # Iterate over all users
-    for user_id, embedding in fused_embeddings_dict.items():
-        # Determine threshold value
-        if threshold_func is not None:
-            threshold_A = threshold_func(embedding).item()
-        elif threshold is not None:
-            threshold_A = threshold
-        else:
-            raise ValueError("Either threshold_func or threshold must be provided.")
-
-        # Find similar users based on cosine similarity and dynamic threshold
-        similar_users = {user_id_2: sim for user_id_2, sim in similarities[user_id].items() if sim.item() >= threshold_A}
+    for i in range(num_users_actual):
+        # Find similar users based on cosine similarity and threshold_A
+        similar_users_indices = [idx for idx, sim in enumerate(similarities[i]) if sim >= threshold_A]
 
         # Sort similar users by similarity score and select top_k users
-        similar_users = sorted(similar_users.items(), key=lambda x: x[1].item(), reverse=True)[:top_k]
-
-        # Get overall rating of the current user
-        current_user_rating = data[data['User_ID'] == user_id]['Overall_Rating'].values[0]
-        rated_items = data[data['User_ID'] == user_id]['Overall_Rating'].values
-        avg_rating = sum(rated_items) / len(rated_items) if len(rated_items) > 0 else 0
+        similar_users_indices = sorted(similar_users_indices, key=lambda idx: similarities[i][idx], reverse=True)[:top_k]
 
         # Initialize recommended items list for the current user
         recommended_items = []
 
         # Get recommended items for the user
-        for user_id_2, _ in similar_users:
-            for _, row in data[data['User_ID'] == user_id_2].iterrows():
-                item_id = row['Items_ID']
-                overall_rating = row['Overall_Rating']
-                
-                # Check if overall rating is similar to the current user's rating
-                if abs(overall_rating - current_user_rating) <= threshold_A:  
-                    recommended_items.append({'item_id': item_id, 'Overall_Rating': overall_rating})
-
-        # Sort recommended items by overall rating
-        recommended_items = sorted(recommended_items, key=lambda x: x['Overall_Rating'], reverse=True)[:top_k]
-
+        for user_idx in similar_users_indices:
+            user_id = data.iloc[user_idx]['User_ID']
+            item_id = data.iloc[user_idx]['Items_ID']
+            overall_rating = data.iloc[user_idx]['Overall_Rating']
+            # Check if item_id is the same as the current user's item_id
+            if item_id != data.iloc[i]['Items_ID']:
+                recommended_items.append({'item_id': item_id, 'Overall_Rating': overall_rating})
+        
         # Add recommended items for the current user to the dictionary
-        recommendations_f_items[user_id] = recommended_items
+        recommendations_f_items[data.iloc[i]['User_ID']] = recommended_items
             
     return recommendations_f_items
 
-def evaluate_recommendation_model(fused_embeddings, file_path, criteria, threshold_A=0.7, top_k=10, test_size=0.3):
-    # Create ground truth ratings matrix and obtain necessary data
-    data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(file_path, criteria)
+
+def split_and_save_data(file_path, criteria, test_size=0.3, random_state=42):
+    # Call the read_data function to obtain the data structures
+    user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
+
+    # Read the data from the file
+    data = pd.read_excel(file_path)
+
+    # Convert User_ID and Items_ID columns to string type
+    data['User_ID'] = data['User_ID'].astype(str)
+    data['Items_ID'] = data['Items_ID'].astype(str)
+
+    # Select only the required columns: 'User_ID', 'Items_ID', and 'Overall_Rating'
+    data_subset = data[['User_ID', 'Items_ID', 'Overall_Rating']]
+
+    # Split the data into train and test sets
+    train_data, test_data = train_test_split(data_subset, test_size=test_size, random_state=random_state)
+
+    # Define file paths for train and test data
+    train_file_path = os.path.join(os.path.dirname(file_path), 'train_data.xlsx')
+    test_file_path = os.path.join(os.path.dirname(file_path), 'test_data.xlsx')
+
+    # Save the train and test sets into separate files
+    train_data.to_excel(train_file_path, index=False)
+    test_data.to_excel(test_file_path, index=False)
+
+    return train_data, test_data
+
+def evaluate_RS_Model(fused_embeddings, file_path, criteria, test_size=0.3, random_state=42):
+    # Split and save the data into train and test sets
+    train_data, test_data = split_and_save_data(file_path, criteria, test_size=test_size, random_state=random_state)
     
-    # Calculate the number of users and items
-    num_users = len(user_id_map)
-    num_items = len(item_id_map)
+    # Prepare training data
+    train_X = fused_embeddings.cpu().detach().numpy()[train_data['User_ID'].astype('category').cat.codes]
+    train_y = train_data['Overall_Rating'].values
 
-    # Calculate the number of users and items for the test set
-    num_test_users = int(len(user_id_map) * test_size)
-    num_test_items = int(len(item_id_map) * test_size)
-
-    # Select the first num_test_users users and items as the test set
-    test_user_ids = list(user_id_map.keys())[:num_test_users]
-    test_item_ids = list(item_id_map.keys())[:num_test_items]
-
-    # The remaining users and items are used for the training set
-    train_user_ids = list(user_id_map.keys())[num_test_users:]
-    train_item_ids = list(item_id_map.keys())[num_test_items:]
-
-    # Print the number of users and items in train and test sets
-    print("Recommendation Model 4:")
-    print("Number of users in train set:", len(train_user_ids))
-    print("Number of items in train set:", len(train_item_ids))
-    print("Number of users in test set:", len(test_user_ids))
-    print("Number of items in test set:", len(test_item_ids))
+    # Instantiate and train the SVR model
+    svr_model = SVR()
+    svr_model.fit(train_X, train_y)
     
-    # Ensure that fused_embeddings contain embeddings for all user and item IDs
-    fused_embeddings_with_ids = {}
-    for user_id, embedding in zip(user_id_map.keys(), fused_embeddings):
-        fused_embeddings_with_ids[user_id] = embedding
+    # Call the function with the defined threshold function to get training recommendations
+    train_recommendations = Recommendation_items_Fixed_TopK(fused_embeddings, file_path, criteria, threshold_A=0.5, top_k=10)
 
-    # Split fused_embeddings based on test data
-    train_fused_embeddings = {user_id: fused_embeddings_with_ids[user_id] for user_id in train_user_ids}
+    # Extract features for training recommendations
+    train_recommendation_features = []
+    train_recommendation_ratings = []
+    for user_id, recommendations in train_recommendations.items():
+        if recommendations is not None:
+            for recommendation in recommendations:
+                train_recommendation_features.append(fused_embeddings[user_id_map[user_id]].cpu().detach().numpy())
+                train_recommendation_ratings.append(recommendation['Overall_Rating'])
+                
+    train_recommendation_features = np.array(train_recommendation_features)
+    train_recommendation_ratings = np.array(train_recommendation_ratings)
 
-    # Generate recommendations for train data
-    # train_recommendations = Recommendation_items_Top_k(train_fused_embeddings, file_path, criteria, threshold_A, top_k)
-    train_recommendations = Recommendation_items_Top_k(train_fused_embeddings, file_path, criteria, threshold=threshold_A, top_k=10)
+    # Concatenate Overall_Rating with recommendation features
+    train_recommendation_features_with_rating = np.column_stack((train_recommendation_features, train_recommendation_ratings))
 
+    # Train SVR model on training recommendations
+    svr_model.fit(train_recommendation_features_with_rating, train_recommendation_ratings)
 
-    # Initialize lists to store differences between predicted and actual ratings for train data
-    train_rating_diffs = []
+    # Prepare test data
+    test_user_ids = test_data['User_ID'].values.astype(str)
+    test_item_ids = test_data['Items_ID'].values.astype(str)
 
-    # Calculate differences between predicted and actual ratings for train data
-    for user_id, recommended_items in train_recommendations.items():
-        # Retrieve ground truth ratings for the user
-        ground_truth_ratings = data[data['User_ID'] == user_id].set_index('Items_ID')['Overall_Rating']
-        # Calculate differences for the user's recommended items
-        for item in recommended_items:
-            item_id = item['item_id']
-            overall_rating = item['Overall_Rating']
-            if item_id in ground_truth_ratings.index:
-                train_rating_diffs.append(overall_rating - ground_truth_ratings[item_id])
+    # Filter test user IDs to only include those present in user_id_map
+    valid_test_user_ids = [user_id for user_id in test_user_ids if user_id in user_id_map]
+    
+    if not valid_test_user_ids:
+        print("No valid test user IDs found.")
+        return None, None
 
-    # Calculate MAE and RMSE for train data
-    train_mae = mean_absolute_error(train_rating_diffs, [0]*len(train_rating_diffs))
-    train_rmse = mean_squared_error(train_rating_diffs, [0]*len(train_rating_diffs), squared=False)
+    valid_test_user_indices = [user_id_map[user_id] for user_id in valid_test_user_ids]
 
-    # Print MAE and RMSE for train data
-    print("MAE for train data (Recommendation Model):", train_mae)
-    print("RMSE for train data (Recommendation Model):", train_rmse)
-  
-    # Split fused_embeddings based on test data
-    test_fused_embeddings = {user_id: fused_embeddings_with_ids[user_id] for user_id in test_user_ids}
+    # Index fused_embeddings with valid test user indices
+    test_X = fused_embeddings[valid_test_user_indices]
 
-    # Generate recommendations for test data
-    test_recommendations = Recommendation_items_Top_k(test_fused_embeddings, file_path, criteria, threshold=threshold_A, top_k=10)
+    # Prepare test data with Overall_Rating as an additional feature
+    test_X_with_rating = np.column_stack((test_X, test_data['Overall_Rating'].values))
 
-    # Initialize lists to store differences between predicted and actual ratings for test data
-    test_rating_diffs = []
-
-    # Calculate differences between predicted and actual ratings for test data
-    for user_id, recommended_items in test_recommendations.items():
-        # Retrieve ground truth ratings for the user
-        ground_truth_ratings = data[data['User_ID'] == user_id].set_index('Items_ID')['Overall_Rating']
-        # Calculate differences for the user's recommended items
-        for item in recommended_items:
-            item_id = item['item_id']
-            overall_rating = item['Overall_Rating']
-            if item_id in ground_truth_ratings.index:
-                test_rating_diffs.append(overall_rating - ground_truth_ratings[item_id])
-
+    # Make predictions for test data using the SVR model
+    test_predictions = svr_model.predict(test_X_with_rating)
+      
     # Calculate MAE and RMSE for test data
-    test_mae = mean_absolute_error(test_rating_diffs, [0]*len(test_rating_diffs))
-    test_rmse = mean_squared_error(test_rating_diffs, [0]*len(test_rating_diffs), squared=False)
+    test_mae = mean_absolute_error(test_data['Overall_Rating'], test_predictions)
+    test_rmse = mean_squared_error(test_data['Overall_Rating'], test_predictions, squared=False)
+    print("MAE for test data (SVR):", test_mae)
+    print("RMSE for test data (SVR):", test_rmse)
 
-    # Print MAE and RMSE for test data
-    print("MAE for test data (Recommendation Model):", test_mae)
-    print("RMSE for test data (Recommendation Model):", test_rmse)
+    return test_mae, test_rmse
 
-    return train_mae, train_rmse, test_mae, test_rmse
 
 
 # --------------------------------------------------------------------------------------
@@ -443,11 +507,11 @@ if __name__ == "__main__":
     #     'TripAdvisor': '/home/z5318340/MCRS4/new_Trip_filtered_dataset.xlsx'
     # }
     
-    # Define your file paths for different datasets in local Server
+    # # Define your file paths for different datasets in local Server
     file_paths = {
         'Movies_Original': 'C://Yahoo//Global//Movies.xlsx',
         'Movies_Modified': 'C://Yahoo//Global//Movies_Modified.xlsx',
-        'BeerAdvocate': 'C://Yahoo//Global//Modified_BeerAdvocate.xlsx',
+        'BeerAdvocate': 'C://Yahoo//Global//BeerAdvocate.xlsx',
         'TripAdvisor': 'C://Yahoo//Global//TripAdvisor.xlsx'
     }
     
@@ -463,31 +527,30 @@ if __name__ == "__main__":
     dataset_to_run = 'Movies_Modified'
 
     # Read data for the selected dataset
+    
     file_path = file_paths[dataset_to_run]
     criteria = criteria_mapping[dataset_to_run]
     user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
     num_users = len(user_id_map)
     num_items = len(item_id_map)
     num_criteria = len(criteria)
+    data = pd.read_excel(file_path)
 
     # Read data from the Excel file and create ID mappings  
     matrices = L_BGNN(file_path, criteria, user_id_map, item_id_map)
 
     #---Attention Embedding------
     model = GAT(in_channels=16, out_channels=256)
-    result = model.Multi_Embd(matrices, num_epochs=100, learning_rate=0.01)
-    fused_embeddings_with_ids = result  # unpack the values you need
-    print("Fused Embeddings:")
-    print(fused_embeddings_with_ids)
-    
+    fused_embeddings = model.Multi_Embd(matrices, num_epochs=100, learning_rate=0.01)
+        
     # Recommendation section
-    num_samples = fused_embeddings_with_ids.shape[0]
+    num_samples = fused_embeddings.shape[0]
 
     # Create an instance of the MultiCriteriaRecommender class
-    output_dim = fused_embeddings_with_ids.shape[1]  # Set output_dim to the number of criteria
+    output_dim = fused_embeddings.shape[1]  # Set output_dim to the number of criteria
 
-    # Convert fused_embeddings_with_ids to a torch tensor
-    fused_embeddings_tensor = fused_embeddings_with_ids.clone().detach().to(torch.float32)
+    # Convert fused_embeddings to a torch tensor
+    fused_embeddings_tensor = fused_embeddings.clone().detach().to(torch.float32)
 
     # Reshape fused_embeddings_tensor to match the expected shape
     num_samples, num_features = fused_embeddings_tensor.shape
@@ -500,15 +563,32 @@ if __name__ == "__main__":
     
     # Call the create_real_ratings function
     data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(file_path, criteria)
-    # Call the P_Recommendation_item function
 
-    # Call the function with the defined threshold function   
-    def threshold_func(fused_embeddings_with_ids):
-        threshold = 0.7  # Example threshold value
-        threshold_tensor = torch.tensor(threshold)  
-        return threshold_tensor
-
+    
     # Call the function with the defined threshold function
-    recommendations = Recommendation_items_Top_k(fused_embeddings_with_ids, file_path, criteria, threshold_func=threshold_func, top_k=10)
+    recommendations_f_items = Recommendation_items_Fixed_TopK(fused_embeddings, file_path, criteria, threshold_A=0.5, top_k=10)
 
-    train_mae, train_rmse,test_mae, test_rmse = evaluate_recommendation_model(fused_embeddings_with_ids, file_path, criteria, threshold_A=0.7, top_k=10, test_size=0.2)
+    # # # Print recommendations for each user
+    # for user_id, recommended_items in recommendations.items():
+    #     print(f"Recommendations for User {user_id}:".encode('utf-8'))  
+    #     for idx, item in enumerate(recommended_items, start=1):
+    #         print(f"{idx}. Item ID: {item['item_id']}, Overall Rating: {item['Overall_Rating']}".encode('utf-8')) 
+    #     print()
+   
+    train_data, test_data = split_and_save_data(file_path, criteria)   
+    test_mae, test_rmse=evaluate_RS_Model(fused_embeddings, file_path, criteria, test_size=0.3, random_state=42)
+    
+    # Call this function after getting fused embeddings
+    embeddings_consistent = check_embeddings_consistency(fused_embeddings)
+    
+    # Check the result
+    if embeddings_consistent:
+        print("Embeddings are consistent.")
+    else:
+        print("Embeddings are not consistent. Please check.")
+
+
+    
+    
+    
+   
