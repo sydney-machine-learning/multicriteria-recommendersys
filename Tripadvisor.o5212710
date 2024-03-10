@@ -1,0 +1,108 @@
+Training GAT graph A_C1
+Epoch 0, Loss 0.2505
+Epoch 10, Loss 0.1742
+Epoch 20, Loss 0.1367
+Epoch 30, Loss 0.1125
+Epoch 40, Loss 0.0940
+Epoch 50, Loss 0.0767
+Epoch 60, Loss 0.0593
+Epoch 70, Loss 0.0423
+Epoch 80, Loss 0.0255
+Epoch 90, Loss 0.0095
+Training GAT graph A_C2
+Epoch 0, Loss 0.0062
+Epoch 10, Loss 0.0040
+Epoch 20, Loss 0.0038
+Epoch 30, Loss 0.0032
+Epoch 40, Loss 0.0024
+Epoch 50, Loss 0.0021
+Epoch 60, Loss 0.0018
+Epoch 70, Loss 0.0018
+Epoch 80, Loss 0.0020
+Epoch 90, Loss 0.0018
+Training GAT graph A_C3
+Epoch 0, Loss 0.0023
+Epoch 10, Loss 0.0023
+Epoch 20, Loss 0.0021
+Epoch 30, Loss 0.0018
+Epoch 40, Loss 0.0020
+Epoch 50, Loss 0.0027
+Epoch 60, Loss 0.0020
+Epoch 70, Loss 0.0018
+Epoch 80, Loss 0.0020
+Epoch 90, Loss 0.0022
+Training GAT graph A_C4
+Epoch 0, Loss 0.0023
+Epoch 10, Loss 0.0022
+Epoch 20, Loss 0.0022
+Epoch 30, Loss 0.0024
+Epoch 40, Loss 0.0023
+Epoch 50, Loss 0.0025
+Epoch 60, Loss 0.0024
+Epoch 70, Loss 0.0026
+Epoch 80, Loss 0.0021
+Epoch 90, Loss 0.0022
+Training GAT graph A_C5
+Epoch 0, Loss 0.0029
+Epoch 10, Loss 0.0027
+Epoch 20, Loss 0.0036
+Epoch 30, Loss 0.0029
+Epoch 40, Loss 0.0031
+Epoch 50, Loss 0.0028
+Epoch 60, Loss 0.0030
+Epoch 70, Loss 0.0042
+Epoch 80, Loss 0.0034
+Epoch 90, Loss 0.0032
+Training GAT graph A_C6
+Epoch 0, Loss 0.0042
+Epoch 10, Loss 0.0040
+Epoch 20, Loss 0.0039
+Epoch 30, Loss 0.0041
+Epoch 40, Loss 0.0038
+Epoch 50, Loss 0.0040
+Epoch 60, Loss 0.0039
+Epoch 70, Loss 0.0041
+Epoch 80, Loss 0.0036
+Epoch 90, Loss 0.0039
+Training GAT graph A_C7
+Epoch 0, Loss 0.0052
+Epoch 10, Loss 0.0048
+Epoch 20, Loss 0.0047
+Epoch 30, Loss 0.0050
+Epoch 40, Loss 0.0051
+Epoch 50, Loss 0.0055
+Epoch 60, Loss 0.0053
+Epoch 70, Loss 0.0050
+Epoch 80, Loss 0.0050
+Epoch 90, Loss 0.0050
+Fused Embeddings:
+tensor([[-8.7182e-05, -2.2889e-05,  1.0799e-04,  ..., -2.8212e-05,
+         -5.3297e-04, -1.7423e-04],
+        [-8.7204e-05, -2.2899e-05,  1.0796e-04,  ..., -2.8212e-05,
+         -5.3297e-04, -1.7423e-04],
+        [-8.7187e-05, -2.2874e-05,  1.0798e-04,  ..., -2.8212e-05,
+         -5.3297e-04, -1.7423e-04],
+        ...,
+        [-8.7224e-05, -2.2893e-05,  1.0796e-04,  ..., -2.8212e-05,
+         -5.3297e-04, -1.7423e-04],
+        [-8.7225e-05, -2.2902e-05,  1.0798e-04,  ..., -2.8212e-05,
+         -5.3297e-04, -1.7423e-04],
+        [-8.7223e-05, -2.2901e-05,  1.0797e-04,  ..., -2.8212e-05,
+         -5.3297e-04, -1.7423e-04]])
+MAE for test data (SVR): 0.7279724722304057
+RMSE for test data (SVR): 0.9795032779601289
+
+================================================================================
+                     Resource Usage on 10/03/2024 12:30:32                      
+
+Job Id: 5212710 
+Queue: MATHS
+Walltime: 02:54:30  (requested 06:00:00)
+Job execution was successful. Exit Status 0. 
+
+--------------------------------------------------------------------------------
+|              |             CPUs              |            Memory             |
+--------------------------------------------------------------------------------
+| Node         | Requested   Used   Efficiency | Requested   Used   Efficiency |
+| k116         |    32       27.14     85.0%   |  64.0gb    54.56gb    85.2%   |
+--------------------------------------------------------------------------------
