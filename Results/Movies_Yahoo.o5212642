@@ -1,0 +1,75 @@
+Training GAT graph A_C1
+Epoch 0, Loss 0.2498
+Epoch 10, Loss 0.1736
+Epoch 20, Loss 0.1364
+Epoch 30, Loss 0.1124
+Epoch 40, Loss 0.0940
+Epoch 50, Loss 0.0767
+Epoch 60, Loss 0.0594
+Epoch 70, Loss 0.0424
+Epoch 80, Loss 0.0256
+Epoch 90, Loss 0.0096
+Training GAT graph A_C2
+Epoch 0, Loss 0.0062
+Epoch 10, Loss 0.0040
+Epoch 20, Loss 0.0038
+Epoch 30, Loss 0.0031
+Epoch 40, Loss 0.0023
+Epoch 50, Loss 0.0020
+Epoch 60, Loss 0.0019
+Epoch 70, Loss 0.0022
+Epoch 80, Loss 0.0018
+Epoch 90, Loss 0.0019
+Training GAT graph A_C3
+Epoch 0, Loss 0.0024
+Epoch 10, Loss 0.0021
+Epoch 20, Loss 0.0019
+Epoch 30, Loss 0.0016
+Epoch 40, Loss 0.0024
+Epoch 50, Loss 0.0019
+Epoch 60, Loss 0.0020
+Epoch 70, Loss 0.0021
+Epoch 80, Loss 0.0017
+Epoch 90, Loss 0.0019
+Training GAT graph A_C4
+Epoch 0, Loss 0.0023
+Epoch 10, Loss 0.0019
+Epoch 20, Loss 0.0026
+Epoch 30, Loss 0.0024
+Epoch 40, Loss 0.0023
+Epoch 50, Loss 0.0021
+Epoch 60, Loss 0.0027
+Epoch 70, Loss 0.0021
+Epoch 80, Loss 0.0022
+Epoch 90, Loss 0.0025
+Fused Embeddings:
+tensor([[-2.8085e-05, -1.8878e-05, -7.2106e-05,  ...,  5.5287e-05,
+          1.6814e-04, -1.0360e-04],
+        [-2.8106e-05, -1.8886e-05, -7.2112e-05,  ...,  5.5287e-05,
+          1.6814e-04, -1.0360e-04],
+        [-2.8091e-05, -1.8890e-05, -7.2114e-05,  ...,  5.5287e-05,
+          1.6814e-04, -1.0360e-04],
+        ...,
+        [-2.8077e-05, -1.8867e-05, -7.2050e-05,  ...,  5.5287e-05,
+          1.6814e-04, -1.0360e-04],
+        [-2.8078e-05, -1.8871e-05, -7.2118e-05,  ...,  5.5286e-05,
+          1.6814e-04, -1.0360e-04],
+        [-2.8085e-05, -1.8871e-05, -7.2097e-05,  ...,  5.5286e-05,
+          1.6814e-04, -1.0360e-04]])
+MAE for test data (SVR): 0.6122736070986787
+RMSE for test data (SVR): 0.8426083124496321
+
+================================================================================
+                     Resource Usage on 10/03/2024 02:21:08                      
+
+Job Id: 5212642 
+Queue: MATHS
+Walltime: 01:07:25  (requested 12:00:00)
+Job execution was successful. Exit Status 0. 
+
+--------------------------------------------------------------------------------
+|              |             CPUs              |            Memory             |
+--------------------------------------------------------------------------------
+| Node         | Requested   Used   Efficiency | Requested   Used   Efficiency |
+| k079         |    32       4.95      15.0%   |  32.0gb    6.26gb     19.6%   |
+--------------------------------------------------------------------------------
