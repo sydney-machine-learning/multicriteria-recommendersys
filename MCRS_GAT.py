@@ -1,41 +1,17 @@
-
-
 import os
-import sys
-import torch_geometric
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
-import torch.optim as optim
 from torch_geometric.nn import GATConv
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, recall_score, mean_squared_error, f1_score, fbeta_score
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader, random_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_score, precision_recall_fscore_support, fbeta_score
 from torch_geometric.data import Data
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from torch_geometric.nn import GCNConv
 from torch_geometric.nn import GATConv
-from sklearn.metrics import average_precision_score
-from scipy.stats import rankdata
-import warnings
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.metrics import precision_score, recall_score, f1_score
-from sklearn.metrics import fbeta_score, average_precision_score
-from tabulate import tabulate
-from sklearn.model_selection import KFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-from sklearn.linear_model import Ridge
 from sklearn.svm import SVR
-from sklearn.ensemble import GradientBoostingRegressor
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import Lasso
 
 
 def read_data(file_path, criteria):
@@ -140,9 +116,7 @@ class GAT(nn.Module):
         x_local = F.normalize(x_local, p=2, dim=1)
 
         # Global Attention
-        x_global = torch.mean(x_local, dim=0)  # Aggregate information globally
-        # x_global = torch.sum(x_local, dim=0)  # Aggregate information globally using sum
-        
+        x_global = torch.mean(x_local, dim=0)  # Aggregate information globally        
         global_attention = F.relu(self.global_fc(x_global))
         global_attention = F.softmax(global_attention, dim=-1)
 
@@ -410,7 +384,7 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_s
                 # Extract the item ID for the recommendation
                 item_id = recommendation['item_id']
                 # Extract features for the recommended item
-                if user_id_map[user_id] < len(fused_embeddings):  
+                if user_id_map[user_id] < len(fused_embeddings) and item_id in item_id_map:
                     recommendation_features = fused_embeddings[user_id_map[user_id]].cpu().detach().numpy()
                     # Extract the rating for the recommendation
                     recommendation_rating = recommendation['Overall_Rating']
@@ -430,9 +404,7 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_s
         
         # Retrain the SVR model using enhanced training data
         svr_model.fit(enhanced_train_X, enhanced_train_y)
-    else:
-        print("No recommendations found for training data. Model will be trained using original data only.")
-
+    
     # Prepare test data
     test_user_ids = test_data['User_ID'].values.astype(str)
     test_item_ids = test_data['Items_ID'].values.astype(str)
@@ -468,15 +440,46 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_s
 
     return test_mae, test_rmse
 
+def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, num_runs=30):
+    # Lists to store MAE and RMSE values from each run
+    mae_values = []
+    rmse_values = []
+
+    # Perform specified number of runs of the function and collect MAE and RMSE values
+    for i in range(num_runs):
+        print("Run", i+1)
+        mae, rmse = evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_size=test_size, random_state=i)
+        mae_values.append(mae)
+        rmse_values.append(rmse)
+
+    # Calculate the standard deviation
+    mae_std = np.std(mae_values)
+    rmse_std = np.std(rmse_values)
+
+    # Calculate the mean of standard deviations
+    mean_mae_std = np.mean(mae_values)
+    mean_rmse_std = np.mean(rmse_values)
+
+    # Print the standard deviation
+    print("Standard deviation of MAE over {} runs:".format(num_runs), mae_std)
+    print("Standard deviation of RMSE over {} runs:".format(num_runs), rmse_std)
+
+    # Print the mean of standard deviations
+    print("Mean of MAE over {} runs:".format(num_runs), mean_mae_std)
+    print("Mean of RMSE over {} runs:".format(num_runs), mean_rmse_std)
+
+    # Return the standard deviations
+    return mae_std, rmse_std
+
 # ---------------------Main Function ---------------------------
 
 if __name__ == "__main__":
     
-    # # Define your file paths for different datasets in Katana Server
+    # Define your file paths for different datasets in Katana Server
     # file_paths = {
-    #     'Movies_Yahoo': '/home/z5318340/MCRS4/Movies_Yahoo.xlsx',
+    #     'Movies_Yahoo': '/home/z5318340/MCRS4/Movies_Original_Second.xlsx',
     #     'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
-    #     'TripAdvisor': '/home/z5318340/MCRS4/TripAdvisor.xlsx'
+    #     'TripAdvisor': '/home/z5318340/MCRS4/Custmoze_Tripadvisor2.xlsx'
     # }
     
     # Define your file paths for different datasets in local Server
@@ -536,11 +539,10 @@ if __name__ == "__main__":
 
     # Define the threshold function
     def threshold_function(embedding):
-        # Define your threshold calculation logic here
-        # For example, you can convert the float value to a tensor
         return torch.tensor(0.1)
 
     # Call the function with the defined threshold function
     recommendations = Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_func=None, top_k=1)
     train_data, test_data = split_and_save_data(file_path, criteria)   
     test_mae, test_rmse=evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, random_state=42)
+    mae_std, rmse_std=evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, num_runs=30)
