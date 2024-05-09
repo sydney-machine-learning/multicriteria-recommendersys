@@ -56,16 +56,14 @@ def L_BGNN(file_path, criteria, user_id_map, item_id_map):
             adj_matrix[uid][mid] = rating
             adj_matrix[mid][uid] = rating
 
-        # Calculate the degree matrices DC_uv and DC_vu as before
-        DC_uv = np.diag(np.sum(adj_matrix, axis=1))
-        DC_vu = np.diag(np.sum(adj_matrix, axis=0))
+        # For the following, note that adj_matrix is symmetric.
 
-        # Normalize the matrix using the degree matrices
-        BC_uv_norm = np.linalg.pinv(DC_uv) @ adj_matrix
-        BC_vu_norm = adj_matrix @ np.linalg.pinv(DC_vu)
+        # Calculate vector of degrees
+        margins = np.maximum(np.sum(adj_matrix, axis=0), 1.0)
 
-        # Average the two normalized matrices to get a single normalized matrix
-        normalized_matrix = (BC_uv_norm + BC_vu_norm) / 2.0
+        # TODO: Check if using sqrt(margins) would be better here.
+        # Normalise the matrix using the degrees
+        normalized_matrix = adj_matrix / margins[:, None] / margins[None, :]
 
         matrices.append(normalized_matrix)
         
