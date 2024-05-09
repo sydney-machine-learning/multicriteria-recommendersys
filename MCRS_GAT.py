@@ -475,15 +475,24 @@ def main(file_path, criteria):
     num_users = len(user_id_map)
     num_items = len(item_id_map)
     num_criteria = len(criteria)
+    print("Reading data...")
     data = pd.read_excel(file_path)
+    print("Reading data finished.")
 
     # Read data from the Excel file and create ID mappings  
+    print("Constructing sociomatrices...")
     matrices = L_BGNN(file_path, criteria, user_id_map, item_id_map)
+    print("Constructing sociomatrices finished.")
 
     #---Attention Embedding------
+    print("Constructing model...")
     model = GAT(in_channels=16, out_channels=256)
+    print("Constructing model finished.")
+    print("Generating embeddings...")
     fused_embeddings = model.Multi_Embd(matrices, num_epochs=100, learning_rate=0.01)
-        
+    print("Generating embeddings finished.")
+    torch.save(fused_embeddings, file_path + '.embed.pt')
+
     # Recommendation section
     num_samples = fused_embeddings.shape[0]
 
@@ -510,6 +519,7 @@ def main(file_path, criteria):
         return torch.tensor(0.1)
 
     # Call the function with the defined threshold function
+    print("Evaluating...")
     recommendations = Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_func=None, top_k=1)
     train_data, test_data = split_and_save_data(file_path, criteria)   
     test_mae, test_rmse=evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, random_state=42)
