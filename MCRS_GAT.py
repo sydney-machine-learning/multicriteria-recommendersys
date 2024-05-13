@@ -56,14 +56,16 @@ def L_BGNN(file_path, criteria, user_id_map, item_id_map):
             adj_matrix[uid][mid] = rating
             adj_matrix[mid][uid] = rating
 
-        # For the following, note that adj_matrix is symmetric.
+        # Calculate the degree matrices DC_uv and DC_vu as before
+        DC_uv = np.diag(np.sum(adj_matrix, axis=1))
+        DC_vu = np.diag(np.sum(adj_matrix, axis=0))
 
-        # Calculate vector of degrees
-        margins = np.maximum(np.sum(adj_matrix, axis=0), 1.0)
+        # Normalize the matrix using the degree matrices
+        BC_uv_norm = np.linalg.pinv(DC_uv) @ adj_matrix
+        BC_vu_norm = adj_matrix @ np.linalg.pinv(DC_vu)
 
-        # TODO: Check if using sqrt(margins) would be better here.
-        # Normalise the matrix using the degrees
-        normalized_matrix = adj_matrix / margins[:, None] / margins[None, :]
+        # Average the two normalized matrices to get a single normalized matrix
+        normalized_matrix = (BC_uv_norm + BC_vu_norm) / 2.0
 
         matrices.append(normalized_matrix)
         
@@ -75,7 +77,7 @@ def L_BGNN(file_path, criteria, user_id_map, item_id_map):
 
 # ------------------------ Define the GAT model
 class GAT(nn.Module):
-    def __init__(self, in_channels, out_channels, num_heads=8):
+    def __init__(self, in_channels, out_channels, num_heads=8, dropout=0.2):
         super(GAT, self).__init__()
         self.num_heads = num_heads
         self.head_dim = out_channels // num_heads
@@ -86,14 +88,14 @@ class GAT(nn.Module):
         self.leakyrelu = nn.LeakyReLU(0.2)
         self.layer_norm = nn.LayerNorm(out_channels)
         self.global_fc = nn.Linear(out_channels, out_channels)
+        self.dropout = nn.Dropout(dropout)  # Add dropout layer
 
     def forward(self, x, edge_index):
-        x = F.dropout(x, p=0.2, training=self.training)
+        x = self.dropout(x)  # Apply dropout to input features
 
         # Local Attention
-        head_outs = [conv(x, edge_index) for conv in self.conv_layers]
+        head_outs = [F.dropout(conv(x, edge_index), p=0.2, training=self.training) for conv in self.conv_layers]
         x_local = torch.cat(head_outs, dim=-1)
-
         # Self-Attention within each head
         self_attention = F.leaky_relu(self.fc(x_local))
         self_attention = F.softmax(self_attention, dim=-1)
@@ -105,7 +107,7 @@ class GAT(nn.Module):
         x_local = self.leakyrelu(x_local)
 
         # Apply Fully Connected Layer
-        x_local = self.fc(x_local)
+        x_local = F.dropout(self.fc(x_local), p=0.2, training=self.training)
 
         # Apply Layer Normalization
         x_local = self.layer_norm(x_local)
@@ -165,9 +167,18 @@ class GAT(nn.Module):
         # Print fused embeddings
         print("Fused Embeddings:")
         print(fused_embeddings)
-        
+
+        # Calculate cosine similarity between embeddings
+        similarities = cosine_similarity(fused_embeddings.cpu().numpy())
+
+        # Print maximum and minimum cosine similarity
+        max_similarity = similarities.max()
+        min_similarity = similarities.min()
+        print(f"Maximum cosine similarity: {max_similarity}")
+        print(f"Minimum cosine similarity: {min_similarity}")
+
         return fused_embeddings
-           
+
     def mse_loss(self, inputs, embeddings_list, attention_weights):
         num_views = len(embeddings_list)
         total_loss = torch.tensor(0.0)
@@ -431,6 +442,8 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_pat
     # Calculate MAE and RMSE for test data
     test_mae = mean_absolute_error(trimmed_test_ground_truth_ratings, test_predictions)
     test_rmse = mean_squared_error(trimmed_test_ground_truth_ratings, test_predictions, squared=False)
+    
+    
     print("MAE for test data (SVR):", test_mae)
     print("RMSE for test data (SVR):", test_rmse)
 
@@ -457,12 +470,12 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, 
     mean_rmse_std = np.mean(rmse_values)
 
     # Print the standard deviation
-    print(f"Standard deviation of MAE over {num_runs} runs: {mae_std}")
-    print(f"Standard deviation of RMSE over {num_runs} runs: {rmse_std}")
+    print("Standard deviation of MAE over {} runs:".format(num_runs), mae_std)
+    print("Standard deviation of RMSE over {} runs:".format(num_runs), rmse_std)
 
     # Print the mean of standard deviations
-    print(f"Mean of MAE over {num_runs} runs: {mean_mae_std}")
-    print(f"Mean of RMSE over {num_runs} runs: {mean_rmse_std}")
+    print("Mean of MAE over {} runs:".format(num_runs), mean_mae_std)
+    print("Mean of RMSE over {} runs:".format(num_runs), mean_rmse_std)
 
     # Return the standard deviations
     return mae_std, rmse_std
