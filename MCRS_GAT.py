@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 import torch
 from torch_geometric.nn import GATConv
@@ -431,7 +431,7 @@ def main(file_path, criteria, save_embeddings=False):
     data, user_id_map, item_id_map = read_data(file_path)
     print("Reading data finished.")
 
-    if save_embeddings and type(save_embeddings) != str:
+    if save_embeddings and not isinstance(save_embeddings, str):
         save_embeddings = file_path + '.embed.pt'
     
     if save_embeddings and os.path.isfile(save_embeddings):
