@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 import torch
 from torch_geometric.nn import GATConv
@@ -8,39 +8,23 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 from torch_geometric.data import Data
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from torch_geometric.nn import GATConv
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.svm import SVR
 
 
-def read_data(file_path, criteria):
+def read_data(file_path):
     
     data = pd.read_excel(file_path)
-    user_id = data['User_ID']
-    item_id = data['Items_ID']
+    data['User_ID'] = user_id = data['User_ID'].astype(str)
+    data['Items_ID'] = item_id = data['Items_ID'].astype(str)
 
     user_id_map = {uid: i for i, uid in enumerate(user_id.unique())}
     num_users = len(user_id_map)
     item_id_map = {mid: i + num_users for i, mid in enumerate(item_id.unique())}
-    num_items = len(item_id_map)
 
-    num_criteria = len(criteria)
-    base_ground_truth_ratings = np.zeros((num_users, num_items, num_criteria), dtype=np.int32)
+    return data, user_id_map, item_id_map
 
-    for i, row in data.iterrows():
-        uid = row['User_ID']
-        mid = row['Items_ID']
-        criterion_ratings = [row[criterion] for criterion in criteria]
-        if uid in user_id_map and mid in item_id_map:
-            user_idx = user_id_map[uid]
-            item_idx = item_id_map[mid] - num_users
-            base_ground_truth_ratings[user_idx, item_idx] = criterion_ratings
-
-    return user_id_map, item_id_map, base_ground_truth_ratings
-
-def L_BGNN(file_path, criteria, user_id_map, item_id_map):
-    graph_data = pd.read_excel(file_path)
+def L_BGNN(data, criteria, user_id_map, item_id_map):
     matrices = []  # Initialize a list to store the normalized matrices for each criterion
     n_nodes = len(user_id_map) + len(item_id_map)
 
@@ -48,10 +32,10 @@ def L_BGNN(file_path, criteria, user_id_map, item_id_map):
         # TODO: Check if this should be a sparse matrix.
         adj_matrix = np.zeros((n_nodes, n_nodes), dtype=np.int32)
 
-        for i in range(len(graph_data)):
-            uid = user_id_map[graph_data['User_ID'][i]]
-            mid = item_id_map[graph_data['Items_ID'][i]]
-            rating = graph_data[criterion][i]
+        for i in range(len(data)):
+            uid = user_id_map[data['User_ID'][i]]
+            mid = item_id_map[data['Items_ID'][i]]
+            rating = data[criterion][i]
 
             adj_matrix[uid][mid] = rating
             adj_matrix[mid][uid] = rating
@@ -123,7 +107,7 @@ class GAT(nn.Module):
         return x
 
     def fusion_embeddings_vectors(self, embeddings_list):  # Add self parameter
-        max_size = max([embedding.size(0) for embedding in embeddings_list])
+        max_size = max(embedding.size(0) for embedding in embeddings_list)
         
         # Pad embeddings to the maximum size
         padded_embeddings = [F.pad(embedding, (0, 0, 0, max_size - embedding.size(0))) for embedding in embeddings_list]
@@ -246,38 +230,20 @@ class GAT(nn.Module):
     
 # -------------Recommendation Section -------------------------
 
-def create_ground_truth_ratings(data, criteria):
-    # Create a mapping from user/item IDs to unique integer indices
-    user_id_map = {uid: i for i, uid in enumerate(data['User_ID'].unique())}
-    item_id_map = {mid: i for i, mid in enumerate(data['Items_ID'].unique())}
-
-    num_users = len(user_id_map)
-    num_items = len(item_id_map)
-    ground_truth_ratings_matrix = np.zeros((num_users, num_items, 1), dtype=np.float32)
-    
-    for _, row in data.iterrows():
-        uid = row['User_ID']
-        mid = row['Items_ID']
-        overall_rating = row['Overall_Rating']
-
-        if uid in user_id_map and mid in item_id_map:
-            user_idx = user_id_map[uid]
-            item_idx = item_id_map[mid]
-            ground_truth_ratings_matrix[user_idx, item_idx, 0] = overall_rating
-        
-    return data, ground_truth_ratings_matrix, user_id_map, item_id_map
-
 def Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_func=None, top_k=1):
     recommendations_f_items = {}
+    num_users = len(user_id_map)
 
-    # Convert fused embeddings to numpy array
-    fused_embeddings_np = fused_embeddings.cpu().detach().numpy()
+    # Convert fused embeddings to numpy array, focusing on users
+    fused_embeddings_np = fused_embeddings.cpu().detach().numpy()[0:num_users,]
 
     # Compute similarities between embeddings
     similarities = cosine_similarity(fused_embeddings_np)
 
-    # Iterate over all users
-    for user_idx, user_id in enumerate(user_id_map.keys()):
+    # Iterate over all users in order of index
+    grouped = data.groupby('User_ID')
+    uids = sorted(user_id_map.items(), key = lambda x: x[1])
+    for user_id, user_idx in uids:
         # Determine threshold value using threshold_func
         if threshold_func is not None:
             threshold_A = threshold_func(fused_embeddings[user_idx]).item()
@@ -297,26 +263,22 @@ def Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_fu
             recommended_items = []
 
             # Retrieve the current user's rating from the data
-            user_data = data[data['User_ID'] == user_id]
+            user_data = grouped.get_group(user_id)
             if len(user_data) > 0:  # Check if there are ratings for this user
                 current_user_rating = user_data['Overall_Rating'].values[0]
 
                 # Get recommended items for the user
                 for user_idx_2 in similar_users_sorted_idx:
-                    if user_idx_2 >= len(user_id_map.keys()):
-                        continue  # Skip if index is out of range
-                    user_id_2 = list(user_id_map.keys())[user_idx_2]
-                    for _, row in data[data['User_ID'] == user_id_2].iterrows():
+                    user_id_2 = uids[user_idx_2][0]
+                    for _, row in grouped.get_group(user_id_2).iterrows():
                         item_id = row['Items_ID']
                         overall_rating = row['Overall_Rating']
 
-                        # Check if overall rating is similar to the current user's rating
-                        if abs(overall_rating - current_user_rating) <= threshold_A:
+                        # Check if overall rating is similar to the
+                        # current user's rating and filter out items
+                        # already rated by the current user
+                        if item_id not in user_data['Items_ID'].values and abs(overall_rating - current_user_rating) <= threshold_A:
                             recommended_items.append({'item_id': item_id, 'Overall_Rating': overall_rating})
-
-                # Filter out items already rated by the current user
-                recommended_items = [item for item in recommended_items if
-                                     item['item_id'] not in user_data['Items_ID'].values]
 
                 # Sort recommended items by overall rating
                 recommended_items = sorted(recommended_items, key=lambda x: x['Overall_Rating'], reverse=True)[:top_k]
@@ -331,13 +293,7 @@ def Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_fu
 
     return recommendations_f_items
 
-def split_and_save_data(file_path, criteria, test_size=0.2, random_state=42):
-    # Call the read_data function to obtain the data structures
-    user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
-
-    # Read the data from the file
-    data = pd.read_excel(file_path)
-
+def split_and_save_data(data, output_path=None, test_size=0.2, random_state=42):
     # Convert User_ID and Items_ID columns to string type
     data['User_ID'] = data['User_ID'].astype(str)
     data['Items_ID'] = data['Items_ID'].astype(str)
@@ -348,9 +304,10 @@ def split_and_save_data(file_path, criteria, test_size=0.2, random_state=42):
     # Split the data into train and test sets
     train_data, test_data = train_test_split(data_subset, test_size=test_size, random_state=random_state)
 
-    # Define file paths for train and test data
-    train_file_path = os.path.join(os.path.dirname(file_path), 'train_data.xlsx')
-    test_file_path = os.path.join(os.path.dirname(file_path), 'test_data.xlsx')
+    if output_path:
+        # Define file paths for train and test data
+        train_file_path = os.path.join(output_path, 'train_data.xlsx')
+        test_file_path = os.path.join(output_path, 'test_data.xlsx')
 
     # Save the train and test sets into separate files
     train_data.to_excel(train_file_path, index=False)
@@ -358,9 +315,9 @@ def split_and_save_data(file_path, criteria, test_size=0.2, random_state=42):
 
     return train_data, test_data
 
-def evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, random_state=42):
+def evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, output_path, test_size=0.2, random_state=42):
     # Split and save the data into train and test sets
-    train_data, test_data = split_and_save_data(file_path, criteria, test_size=test_size, random_state=random_state)
+    train_data, test_data = split_and_save_data(data, output_path, test_size=test_size, random_state=random_state)
     
     # Prepare training data
     train_X = fused_embeddings.cpu().detach().numpy()[train_data['User_ID'].astype('category').cat.codes]
@@ -411,7 +368,6 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_pat
     
     # Prepare test data
     test_user_ids = test_data['User_ID'].values.astype(str)
-    test_item_ids = test_data['Items_ID'].values.astype(str)
 
     # Ensure all user IDs in test data are present in user_id_map
     for user_id in test_user_ids:
@@ -446,7 +402,7 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_pat
 
     return test_mae, test_rmse
 
-def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, num_runs=30):
+def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, data, output_path, test_size=0.2, num_runs=30):
     # Lists to store MAE and RMSE values from each run
     mae_values = []
     rmse_values = []
@@ -454,7 +410,7 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, 
     # Perform specified number of runs of the function and collect MAE and RMSE values
     for i in range(num_runs):
         print("Run", i+1)
-        mae, rmse = evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=test_size, random_state=i)
+        mae, rmse = evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, output_path, test_size=test_size, random_state=i)
         mae_values.append(mae)
         rmse_values.append(rmse)
 
@@ -479,78 +435,63 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, 
 
 # ---------------------Main Function ---------------------------
 
-def main(file_path, criteria):
+def main(file_path, criteria, save_embeddings=False):
     # Read data for the selected dataset
-    user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
-    num_users = len(user_id_map)
-    num_items = len(item_id_map)
-    num_criteria = len(criteria)
     print("Reading data...")
-    data = pd.read_excel(file_path)
+    data, user_id_map, item_id_map = read_data(file_path)
     print("Reading data finished.")
 
-    # Read data from the Excel file and create ID mappings  
-    print("Constructing sociomatrices...")
-    matrices = L_BGNN(file_path, criteria, user_id_map, item_id_map)
-    print("Constructing sociomatrices finished.")
-
-    #---Attention Embedding------
-    print("Constructing model...")
-    model = GAT(in_channels=16, out_channels=256)
-    print("Constructing model finished.")
-    print("Generating embeddings...")
-    fused_embeddings = model.Multi_Embd(matrices, num_epochs=100, learning_rate=0.01)
-    print("Generating embeddings finished.")
-    torch.save(fused_embeddings, file_path + '.embed.pt')
-
-    # Recommendation section
-    num_samples = fused_embeddings.shape[0]
-
-    # Create an instance of the MultiCriteriaRecommender class
-    output_dim = fused_embeddings.shape[1]  # Set output_dim to the number of criteria
-
-    # Convert fused_embeddings to a torch tensor
-    fused_embeddings_tensor = fused_embeddings.clone().detach().to(torch.float32)
-
-    # Reshape fused_embeddings_tensor to match the expected shape
-    num_samples, num_features = fused_embeddings_tensor.shape
-
-    # Calculate the total number of features per criterion
-    num_features_per_criterion = num_features // num_criteria
-        
-    # Create a DataFrame with user and item identifiers as MultiIndex
-    df_users_items = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, item_id) for user_id in user_id_map.keys() for item_id in item_id_map.keys()]))
+    if save_embeddings and not isinstance(save_embeddings, str):
+        save_embeddings = file_path + '.embed.pt'
     
-    # Call the create_real_ratings function
-    data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(data, criteria)
+    if save_embeddings and os.path.isfile(save_embeddings):
+        embeddings_loaded = True
+        print("Loading embeddings...")
+        fused_embeddings = torch.load(save_embeddings)
+        print("Loading embeddings finished...")
+    else:
+        embeddings_loaded = False
+        print("Constricting sociomatrices...")
+        matrices = L_BGNN(data, criteria, user_id_map, item_id_map)
+        print("Constricting sociomatrices finished.")
 
-    # Define the threshold function
-    def threshold_function(embedding):
-        return torch.tensor(0.1)
+        #---Attention Embedding------
+        print("Constricting model...")
+        model = GAT(in_channels=16, out_channels=256)
+        print("Constricting model finished.")
+
+        print("Generating embeddings...")
+        fused_embeddings = model.Multi_Embd(matrices, num_epochs=100, learning_rate=0.01)
+        print("Generating embeddings finished.")
+
+    if save_embeddings and not embeddings_loaded: 
+        print("Saving embeddings...")
+        torch.save(fused_embeddings, save_embeddings)
+        print("Saving embeddings finished...")
 
     # Call the function with the defined threshold function
     print("Evaluating...")
-    recommendations = Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_func=None, top_k=1)
-    train_data, test_data = split_and_save_data(file_path, criteria)   
-    test_mae, test_rmse=evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, random_state=42)
-    mae_std, rmse_std=evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, num_runs=30)
+    Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_func=None, top_k=1)
+    evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, os.path.dirname(file_path), test_size=0.2, random_state=42)
+    evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, data, os.path.dirname(file_path), test_size=0.2, num_runs=30)
+    
 
 if __name__ == "__main__":
-
+    
     # Define your file paths for different datasets in Katana Server
     # file_paths = {
     #     'Movies_Yahoo': '/home/z5318340/MCRS4/Movies_Original_Second.xlsx',
     #     'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
     #     'TripAdvisor': '/home/z5318340/MCRS4/Custmoze_Tripadvisor2.xlsx'
     # }
-
+    
     # Define your file paths for different datasets in local Server
     file_paths = {
         'Movies_Yahoo': 'C://Yahoo//Global//Movies_Yahoo.xlsx',
         'BeerAdvocate': 'C://Yahoo//Global//BeerAdvocate.xlsx',
         'TripAdvisor': 'C://Yahoo//Global//TripAdvisor.xlsx'
     }
-
+    
     # Define criteria for different datasets
     criteria_mapping = {
         'Movies_Yahoo': ['C1', 'C2', 'C3', 'C4'],
@@ -559,6 +500,6 @@ if __name__ == "__main__":
     }
 
     # Define the dataset to run
-    dataset_to_run = 'BeerAdvocate'
+    DATASET_TO_RUN = 'BeerAdvocate'
 
-    main(file_paths[dataset_to_run], criteria_mapping[dataset_to_run])
+    main(file_paths[DATASET_TO_RUN], criteria_mapping[DATASET_TO_RUN], True)
