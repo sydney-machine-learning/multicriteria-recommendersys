@@ -45,9 +45,8 @@ def L_BGNN(data, criteria, user_id_map, item_id_map):
         # Calculate vector of degrees
         margins = np.maximum(np.sum(adj_matrix, axis=0), 1.0)
 
-        # TODO: Check if using sqrt(margins) would be better here.
-        # Normalise the matrix using the degrees
-        normalized_matrix = adj_matrix / margins[:, None] / margins[None, :]
+        # Divide the matrix by the harmonic mean of its margins.
+        normalized_matrix = (adj_matrix / margins[:, None] + adj_matrix / margins[None, :]) / 2
 
         matrices.append(normalized_matrix)
         
