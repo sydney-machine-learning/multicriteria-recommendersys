@@ -238,9 +238,7 @@ class GAT(nn.Module):
     
 # -------------Recommendation Section -------------------------
 
-def create_ground_truth_ratings(file_path, criteria):  
-    # data = pd.read_excel(file_path)
-
+def create_ground_truth_ratings(data, criteria):
     # Create a mapping from user/item IDs to unique integer indices
     user_id_map = {uid: i for i, uid in enumerate(data['User_ID'].unique())}
     item_id_map = {mid: i for i, mid in enumerate(data['Items_ID'].unique())}
@@ -352,7 +350,7 @@ def split_and_save_data(file_path, criteria, test_size=0.2, random_state=42):
 
     return train_data, test_data
 
-def evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, random_state=42):
+def evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, random_state=42):
     # Split and save the data into train and test sets
     train_data, test_data = split_and_save_data(file_path, criteria, test_size=test_size, random_state=random_state)
     
@@ -438,7 +436,7 @@ def evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_s
 
     return test_mae, test_rmse
 
-def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, num_runs=30):
+def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, num_runs=30):
     # Lists to store MAE and RMSE values from each run
     mae_values = []
     rmse_values = []
@@ -446,7 +444,7 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, file_path, cr
     # Perform specified number of runs of the function and collect MAE and RMSE values
     for i in range(num_runs):
         print("Run", i+1)
-        mae, rmse = evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_size=test_size, random_state=i)
+        mae, rmse = evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=test_size, random_state=i)
         mae_values.append(mae)
         rmse_values.append(rmse)
 
@@ -471,36 +469,8 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, file_path, cr
 
 # ---------------------Main Function ---------------------------
 
-if __name__ == "__main__":
-    
-    # Define your file paths for different datasets in Katana Server
-    # file_paths = {
-    #     'Movies_Yahoo': '/home/z5318340/MCRS4/Movies_Original_Second.xlsx',
-    #     'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
-    #     'TripAdvisor': '/home/z5318340/MCRS4/Custmoze_Tripadvisor2.xlsx'
-    # }
-    
-    # Define your file paths for different datasets in local Server
-    file_paths = {
-        'Movies_Yahoo': 'C://Yahoo//Global//Movies_Yahoo.xlsx',
-        'BeerAdvocate': 'C://Yahoo//Global//BeerAdvocate.xlsx',
-        'TripAdvisor': 'C://Yahoo//Global//TripAdvisor.xlsx'
-    }
-    
-    # Define criteria for different datasets
-    criteria_mapping = {
-        'Movies_Yahoo': ['C1', 'C2', 'C3', 'C4'],
-        'BeerAdvocate': ['C1', 'C2', 'C3', 'C4'],
-        'TripAdvisor': ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']
-    }
-
-    # Define the dataset to run
-    dataset_to_run = 'BeerAdvocate'
-
+def main(file_path, criteria):
     # Read data for the selected dataset
-    
-    file_path = file_paths[dataset_to_run]
-    criteria = criteria_mapping[dataset_to_run]
     user_id_map, item_id_map, base_ground_truth_ratings = read_data(file_path, criteria)
     num_users = len(user_id_map)
     num_items = len(item_id_map)
@@ -533,7 +503,7 @@ if __name__ == "__main__":
     df_users_items = pd.DataFrame(index=pd.MultiIndex.from_tuples([(user_id, item_id) for user_id in user_id_map.keys() for item_id in item_id_map.keys()]))
     
     # Call the create_real_ratings function
-    data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(file_path, criteria)
+    data, ground_truth_ratings_matrix, user_id_map, item_id_map = create_ground_truth_ratings(data, criteria)
 
     # Define the threshold function
     def threshold_function(embedding):
@@ -542,5 +512,33 @@ if __name__ == "__main__":
     # Call the function with the defined threshold function
     recommendations = Recommendation_items_Top_k(fused_embeddings, user_id_map, data, threshold_func=None, top_k=1)
     train_data, test_data = split_and_save_data(file_path, criteria)   
-    test_mae, test_rmse=evaluate_RS_Model(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, random_state=42)
-    mae_std, rmse_std=evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, file_path, criteria, test_size=0.2, num_runs=30)
+    test_mae, test_rmse=evaluate_RS_Model(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, random_state=42)
+    mae_std, rmse_std=evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, data, file_path, criteria, test_size=0.2, num_runs=30)
+
+if __name__ == "__main__":
+
+    # Define your file paths for different datasets in Katana Server
+    # file_paths = {
+    #     'Movies_Yahoo': '/home/z5318340/MCRS4/Movies_Original_Second.xlsx',
+    #     'BeerAdvocate': '/home/z5318340/MCRS4/BeerAdvocate.xlsx',
+    #     'TripAdvisor': '/home/z5318340/MCRS4/Custmoze_Tripadvisor2.xlsx'
+    # }
+
+    # Define your file paths for different datasets in local Server
+    file_paths = {
+        'Movies_Yahoo': 'C://Yahoo//Global//Movies_Yahoo.xlsx',
+        'BeerAdvocate': 'C://Yahoo//Global//BeerAdvocate.xlsx',
+        'TripAdvisor': 'C://Yahoo//Global//TripAdvisor.xlsx'
+    }
+
+    # Define criteria for different datasets
+    criteria_mapping = {
+        'Movies_Yahoo': ['C1', 'C2', 'C3', 'C4'],
+        'BeerAdvocate': ['C1', 'C2', 'C3', 'C4'],
+        'TripAdvisor': ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7']
+    }
+
+    # Define the dataset to run
+    dataset_to_run = 'BeerAdvocate'
+
+    main(file_paths[dataset_to_run], criteria_mapping[dataset_to_run])
