@@ -423,12 +423,12 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, 
     mean_rmse_std = np.mean(rmse_values)
 
     # Print the standard deviation
-    print("Standard deviation of MAE over {} runs:".format(num_runs), mae_std)
-    print("Standard deviation of RMSE over {} runs:".format(num_runs), rmse_std)
+    print(f"Standard deviation of MAE over {num_runs} runs: {mae_std}")
+    print(f"Standard deviation of RMSE over {num_runs} runs: {rmse_std}")
 
     # Print the mean of standard deviations
-    print("Mean of MAE over {} runs:".format(num_runs), mean_mae_std)
-    print("Mean of RMSE over {} runs:".format(num_runs), mean_rmse_std)
+    print(f"Mean of MAE over {num_runs} runs: {mean_mae_std}")
+    print(f"Mean of RMSE over {num_runs} runs: {mean_rmse_std}")
 
     # Return the standard deviations
     return mae_std, rmse_std
