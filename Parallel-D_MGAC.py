@@ -194,7 +194,7 @@ class GAT(nn.Module):
 
         return total_loss / (num_views * (num_views - 1))
 
-    def global_contrastive_loss(self, embeddings_list, temperature=0.1):
+    def global_contrastive_loss(self, embeddings_list, temperature=0.1): ## PK: Temperature and beta below seem redundant, but OK for now.
         global_loss = torch.tensor(0.0)
         num_views = len(embeddings_list)
         
@@ -220,7 +220,7 @@ class GAT(nn.Module):
 
         return global_loss / (num_views * (num_views - 1))
 
-    def l2_regularization(self, l2_weight=0.1):
+    def l2_regularization(self, l2_weight=0.1): # PK: l2_weight and gamma below seem redundant, but OK for now.
         l2_reg = torch.norm(torch.stack([torch.norm(param, p=2) for param in self.parameters()]), p=2)
         return l2_weight * l2_reg
 
@@ -451,6 +451,8 @@ def evaluate_RS_Model_multiple_runs(fused_embeddings, user_id_map, item_id_map, 
 
         # Print the results
         logging.info(f"For {num_runs} runs:")
+        logging.info(f"MAEs: {mae_values}")
+        logging.info(f"RMSEs: {rmse_values}")
         logging.info(f"Mean MAE: {mae_mean}, Std MAE: {mae_std}")
         logging.info(f"Mean RMSE: {rmse_mean}, Std RMSE: {rmse_std}")
 
