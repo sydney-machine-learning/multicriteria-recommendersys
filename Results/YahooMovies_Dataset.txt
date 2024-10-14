@@ -1,7 +1,0 @@
-Standard deviation of MAE over 30 runs: 0.0058524798897797116
-Standard deviation of RMSE over 30 runs: 0.008315352443429121
-Mean of MAE over 30 runs: 0.6109239254304777
-Mean of RMSE over 30 runs: 0.8375564369951263
-                    
-
-
